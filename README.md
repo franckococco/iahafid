@@ -8,12 +8,12 @@ Backend que recibe mensajes de WhatsApp (Cloud API de Meta) y responde. Hoy est�
 
 | Qué | Ahora (prueba) | Después (producción) |
 |---|---|---|
-| Token de Meta | Temporal: caduca (a veces en horas). Hay que generar otro. | Token permanente de **System User** en Meta Business. Se genera una vez. |
+| Acceso a Meta | Usuario del sistema `iahaf-bot` (credenciales en `.env` local). | El mismo acceso sirve en producción; no uses el del panel de prueba. |
 | Servidor | Lo corrés en tu PC. Si apagás la PC, deja de contestar. | Lo dejás 24/7 en un hosting (Railway, Render, un VPS, etc.). |
 | URL pública | `localtunnel` / ngrok: cambia y hay que actualizar el webhook en Meta. | Un dominio fijo, se configura el webhook **una sola vez**. |
 | Número | Número de prueba de Meta (`+1 555-203-0245`). Solo habla con números autorizados. | Número de WhatsApp Business propio. |
 
-Resumen: el software ya está. Lo que se renueva es la **infraestructura de prueba**. Cuando haya token permanente + servidor en internet, no tenés que tocar eso todos los días.
+Resumen: el software y el usuario del sistema `iahaf-bot` ya están. En prueba local todavía hay que levantar el servidor y, si cambia el túnel, actualizar el webhook. Cuando haya hosting con URL fija, eso también queda atrás.
 
 ## Cómo correrlo en otra PC
 
@@ -66,7 +66,7 @@ App de Meta: [IAHAFID](https://developers.facebook.com/apps/1810396190374656/das
 
 ## Siguiente paso de producto
 
-1. Token permanente (System User).
-2. Hosting con URL fija.
-3. Poner `AI_MODE=openai` y una API key (OpenAI, Groq, etc.).
+1. ~~Usuario del sistema (`iahaf-bot`).~~ Hecho.
+2. Poner `AI_MODE=openai` y una API key (OpenAI, Groq, etc.) y definir cómo debe contestar IAHAF.
+3. Hosting con URL fija (para no actualizar el webhook cada vez).
 4. Pasar de número de prueba a número de producción.
