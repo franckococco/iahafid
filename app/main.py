@@ -8,11 +8,26 @@ from collections import OrderedDict
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 
 from app.ai import reply_to
-from app.catalog import fallback_quote, search_manuals, search_products
+from app.catalog import (
+    fallback_quote,
+    find_products,
+    is_complex,
+    remember_match,
+    search_manuals,
+    search_products,
+)
 from app.config import settings
 from app.memory import append as remember
-from app.memory import history_for
-from app.sales import HANDOFF_REPLY, wants_human
+from app.memory import history_for, profile_for, set_profile
+from app.sales import (
+    ASK_CHASSIS_REPLY,
+    GOT_CHASSIS_ONLY,
+    chassis_context,
+    extract_chassis,
+    handoff_reply,
+    needs_chassis,
+    wants_human,
+)
 from app.whatsapp import mark_as_read, send_text
 
 _AI_FAILS = "Tuve un problema para generar la respuesta."
@@ -54,6 +69,12 @@ def _valid_signature(raw_body: bytes, header: str | None) -> bool:
 @app.get("/health")
 async def health():
     return {"ok": True, "ai_mode": settings.ai_mode}
+
+
+@app.get("/consulta")
+async def consulta(q: str = Query(default="")):
+    """Consulta el catálogo grabado (productos + lo aprendido de chats)."""
+    return {"q": q, "productos": find_products(q)}
 
 
 @app.get("/webhook")
@@ -116,14 +137,35 @@ async def _handle_message(message: dict) -> None:
     logger.info("De %s: %s", sender, text)
     asyncio.create_task(mark_as_read(message_id))
 
+    found_chassis = extract_chassis(text)
+    if found_chassis:
+        set_profile(sender, chasis=found_chassis)
+        logger.info("Chasis de %s: %s", sender, found_chassis)
+    chasis = found_chassis or str(profile_for(sender).get("chasis") or "")
+
+    past = " ".join(
+        turn["text"] for turn in history_for(sender) if turn.get("role") == "user"
+    )
+    lookup = f"{past} {text}".strip()
+    matches = find_products(lookup)
+    remember_match(text, matches)
+
     if wants_human(text):
-        answer = HANDOFF_REPLY
+        answer = handoff_reply(chasis)
+    elif found_chassis and not matches:
+        answer = GOT_CHASSIS_ONLY
+    elif needs_chassis(matches) and not chasis:
+        answer = ASK_CHASSIS_REPLY
+    elif matches and is_complex(matches[0]) and chasis:
+        answer = handoff_reply(chasis)
     else:
-        past = " ".join(
-            turn["text"] for turn in history_for(sender) if turn.get("role") == "user"
+        extra = (
+            search_products(lookup)
+            + "\n\n"
+            + chassis_context(chasis)
+            + "\n\n"
+            + search_manuals(lookup)
         )
-        lookup = f"{past} {text}".strip()
-        extra = search_products(lookup) + "\n\n" + search_manuals(lookup)
         answer = await reply_to(text, history=history_for(sender), extra_context=extra)
         if answer.startswith(_AI_FAILS):
             quote = fallback_quote(lookup)

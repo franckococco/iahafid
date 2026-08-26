@@ -8,4 +8,7 @@ __pycache__/
 tools/
 *.exe
 data/chats.json
+data/learned.json
+data/customers.json
+TOKEN-LOCAL.txt
 

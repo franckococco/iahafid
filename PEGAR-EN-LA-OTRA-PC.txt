@@ -1,6 +1,14 @@
 IAHAF — pegar esto en la otra PC
 ================================
 
+TOKEN DEL WEBHOOK (este es el que se pega en Meta):
+
+iahaf-verify-cambiar
+
+Eso no es una clave secreta. Es el verify token del webhook.
+En Meta, campo "Token de verificación": iahaf-verify-cambiar
+
+
 Repo: https://github.com/franckococco/iahafid
 
 1) Bajar el código
@@ -17,8 +25,9 @@ cd iahafid
 
 2) Copiar el .env a mano
 ------------------------
-El .env NO está en GitHub (tiene tokens).
+El .env NO está en GitHub (tiene el token de WhatsApp y el de Gemini).
 Copiá el archivo .env de esta PC a la misma carpeta en la otra.
+O copiá TOKEN-LOCAL.txt (está en esta PC, no se sube a GitHub).
 Sin eso el bot no habla ni con WhatsApp ni con Gemini.
 
 
@@ -35,18 +44,28 @@ npx localtunnel --port 8000
 
 En Meta, webhook:
 URL: https://EL-TUNEL-QUE-TE-DE.loca.lt/webhook
-Token: iahaf-verify-cambiar
+Token de verificación: iahaf-verify-cambiar
 Campo: messages
 
 
 4) Pegar ESTO en Cursor (chat nuevo, carpeta del proyecto abierta)
 ------------------------------------------------------------------
-Seguir IAHAF. Leé CONTINUACION.md y PLAN.md. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini, catálogo real, tono informal. Lo rápido lo cierra el bot; lo complejo pasa a un vendedor (eso va en el catálogo, no lo decide la IA). No regeneres tokens; usá el .env local y iahaf-bot. Próximo paso: hosting con URL fija (Railway) y cargar el Excel con columna tipo rapido/complejo.
+Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo real: rápido cotiza y aparta; complejo pide CHASIS (cédula/parabrisas), nunca motor, y pasa a vendedor. Los productos se graban en data/products.json y las formas de pedirlos en data/learned.json. Consulta: GET /consulta?q=filtro+308+2014. No regeneres tokens; usá el .env local y iahaf-bot. Próximo paso: hosting con URL fija (Railway) y cargar el Excel con columna tipo rapido/complejo.
 
 
-5) Datos fijos (no son secretos)
+5) Cómo vende ahora
+-------------------
+- Rápido (filtro, pastillas): cotiza con marca/modelo/año. Ejemplo: filtro 308 2014 → $12.500.
+- Complejo (kit distribución, motor, caja): pide número de chasis, lo guarda, deriva a vendedor.
+- Nunca pide número de motor.
+- Si el cliente manda el chasis primero: lo anota y pregunta qué pieza busca.
+- Cada consulta que cierra en un solo producto se guarda para la próxima.
+
+
+6) Datos fijos (no son secretos)
 --------------------------------
 Número de prueba: +1 555-203-0245
 Verify token: iahaf-verify-cambiar
+Consulta local: http://127.0.0.1:8000/consulta?q=filtro+308+2014
 App: https://developers.facebook.com/apps/1810396190374656/dashboard/
 Webhook: https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business

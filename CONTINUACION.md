@@ -15,8 +15,10 @@ El vendedor es **nuestro software + Gemini**, con el catálogo del local.
 El cliente escribe como le sale (`hola tenes filtro para el peugeot 308 2014?`). El bot no es un formulario.
 
 - Lo **rápido** (filtro, pastillas, bujías, etc. con SKU claro) lo cierra el bot: cotiza y ofrece apartar.
-- Lo **complejo** (motor, caja, computadora, a pedido, reclamo, mayorista) pasa a un vendedor.
-- Esa clasificación va en el catálogo (`rapido` / `complejo`), no la decide Gemini.
+- Lo **complejo** (kit distribución, motor, caja, computadora, a pedido) pide **número de chasis** (cédula o parabrisas), **nunca motor**, y pasa a un vendedor.
+- Esa clasificación va en el catálogo (`tipo`: `rapido` / `complejo`), no la decide Gemini.
+- Los productos se graban en `data/products.json`. Cómo los pide la gente se guarda en `data/learned.json` (no se sube). El chasis del cliente va en `data/customers.json` (no se sube).
+- Consulta del catálogo: `GET /consulta?q=filtro+308+2014`.
 
 Número de prueba `+1 555-203-0245`: solo habla con hasta **5** celulares autorizados en Meta (API Setup → destinatarios). Un cliente cualquiera no puede escribir todavía. En producción, con número Business propio, sí.
 
@@ -24,7 +26,8 @@ Número de prueba `+1 555-203-0245`: solo habla con hasta **5** celulares autori
 
 - Gemini (`gemini-3.6-flash`) arma la respuesta. Si se cae y hay match de catálogo, cotiza igual (el caso del 308 2014, $12.500).
 - Catálogo de ejemplo: filtro 308 2012-2018, pastillas C3, kit Gol Trend.
-- Búsqueda informal: sin tildes, año dentro del rango cuenta, no pide motor si el catálogo no distingue.
+- Búsqueda informal: sin tildes, año dentro del rango cuenta. Nunca pide motor.
+- Si la pieza es compleja o hay más de un SKU, pide chasis, lo guarda y deriva.
 - Memoria: últimos 16 mensajes por cliente (`data/chats.json`, no se sube).
 - Manuales: hoy un `.txt` de prueba; por mensaje manda los 3 mejores, 700 caracteres. Los PDF completos van después (buscar el párrafo útil, no pegar el archivo entero).
 - Si pide vendedor / reclamo / garantía, deriva sin pasar por la IA.
