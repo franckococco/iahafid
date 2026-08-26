@@ -9,9 +9,13 @@ logger = logging.getLogger(__name__)
 GRAPH_URL = f"https://graph.facebook.com/{settings.graph_api_version}"
 
 
+_working_recipients: dict[str, str] = {}
+
+
 def recipient_candidates(to: str, user_id: str = "") -> list[str]:
+    cached = _working_recipients.get(to)
     candidates: list[str] = []
-    for value in (to, user_id, *_argentine_alternates(to)):
+    for value in (cached, *_argentine_alternates(to), to, user_id):
         if value and value not in candidates:
             candidates.append(value)
     return candidates
@@ -51,6 +55,7 @@ async def send_text(to: str, body: str, user_id: str = "") -> bool:
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code < 400:
                 logger.info("WhatsApp send OK to %s", recipient)
+                _working_recipients[to] = recipient
                 return True
             last_error = response.text
             logger.warning("WhatsApp send %s failed: %s", recipient, response.text[:400])

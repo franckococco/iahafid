@@ -1,0 +1,52 @@
+IAHAF — pegar esto en la otra PC
+================================
+
+Repo: https://github.com/franckococco/iahafid
+
+1) Bajar el código
+------------------
+Si ya tenés la carpeta:
+
+git pull origin main
+
+Si es la primera vez:
+
+git clone https://github.com/franckococco/iahafid.git
+cd iahafid
+
+
+2) Copiar el .env a mano
+------------------------
+El .env NO está en GitHub (tiene tokens).
+Copiá el archivo .env de esta PC a la misma carpeta en la otra.
+Sin eso el bot no habla ni con WhatsApp ni con Gemini.
+
+
+3) Instalar y levantar (PowerShell, dentro de la carpeta)
+---------------------------------------------------------
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+En otra ventana:
+
+npx localtunnel --port 8000
+
+En Meta, webhook:
+URL: https://EL-TUNEL-QUE-TE-DE.loca.lt/webhook
+Token: iahaf-verify-cambiar
+Campo: messages
+
+
+4) Pegar ESTO en Cursor (chat nuevo, carpeta del proyecto abierta)
+------------------------------------------------------------------
+Seguir IAHAF. Leé CONTINUACION.md y PLAN.md. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini, catálogo real, tono informal. Lo rápido lo cierra el bot; lo complejo pasa a un vendedor (eso va en el catálogo, no lo decide la IA). No regeneres tokens; usá el .env local y iahaf-bot. Próximo paso: hosting con URL fija (Railway) y cargar el Excel con columna tipo rapido/complejo.
+
+
+5) Datos fijos (no son secretos)
+--------------------------------
+Número de prueba: +1 555-203-0245
+Verify token: iahaf-verify-cambiar
+App: https://developers.facebook.com/apps/1810396190374656/dashboard/
+Webhook: https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business

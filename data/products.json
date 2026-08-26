@@ -1,0 +1,32 @@
+[
+  {
+    "sku": "FIL-PEU-308-1109AY",
+    "marca": "Peugeot",
+    "modelo": "308",
+    "anio": "2012-2018",
+    "producto": "Filtro de aceite",
+    "precio": 12500,
+    "stock": 8,
+    "notas": "Equivale a 1109.AY"
+  },
+  {
+    "sku": "PAST-CIT-C3-161234",
+    "marca": "Citroën",
+    "modelo": "C3",
+    "anio": "2010-2016",
+    "producto": "Pastillas de freno delanteras",
+    "precio": 38900,
+    "stock": 4,
+    "notas": "Juego"
+  },
+  {
+    "sku": "DIST-VW-GOL-06A109119",
+    "marca": "Volkswagen",
+    "modelo": "Gol Trend",
+    "anio": "2008-2013",
+    "producto": "Kit de distribución",
+    "precio": 145000,
+    "stock": 2,
+    "notas": "Correa + tensores"
+  }
+]

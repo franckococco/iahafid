@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -7,8 +8,14 @@ from collections import OrderedDict
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 
 from app.ai import reply_to
+from app.catalog import fallback_quote, search_manuals, search_products
 from app.config import settings
+from app.memory import append as remember
+from app.memory import history_for
+from app.sales import HANDOFF_REPLY, wants_human
 from app.whatsapp import mark_as_read, send_text
+
+_AI_FAILS = "Tuve un problema para generar la respuesta."
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -71,20 +78,19 @@ async def receive_webhook(request: Request):
         payload = json.loads(raw.decode("utf-8") or "{}")
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="JSON inválido")
-    try:
-        await _handle_payload(payload)
-    except Exception:
-        logger.exception("Error procesando webhook")
-    # Siempre 200: si Meta recibe error, reintenta el mismo evento.
+    asyncio.create_task(_handle_payload(payload))
     return {"status": "ok"}
 
 
 async def _handle_payload(payload: dict) -> None:
-    for entry in payload.get("entry", []):
-        for change in entry.get("changes", []):
-            value = change.get("value", {})
-            for message in value.get("messages", []) or []:
-                await _handle_message(message)
+    try:
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for message in value.get("messages", []) or []:
+                    await _handle_message(message)
+    except Exception:
+        logger.exception("Error procesando webhook")
 
 
 async def _handle_message(message: dict) -> None:
@@ -98,8 +104,6 @@ async def _handle_message(message: dict) -> None:
         logger.info("Mensaje duplicado ignorado: %s", message_id)
         return
 
-    await mark_as_read(message_id)
-
     user_id = message.get("from_user_id") or ""
     if msg_type != "text":
         await send_text(sender, "Por ahora solo puedo leer mensajes de texto.", user_id)
@@ -110,5 +114,23 @@ async def _handle_message(message: dict) -> None:
         return
 
     logger.info("De %s: %s", sender, text)
-    answer = await reply_to(text)
+    asyncio.create_task(mark_as_read(message_id))
+
+    if wants_human(text):
+        answer = HANDOFF_REPLY
+    else:
+        past = " ".join(
+            turn["text"] for turn in history_for(sender) if turn.get("role") == "user"
+        )
+        lookup = f"{past} {text}".strip()
+        extra = search_products(lookup) + "\n\n" + search_manuals(lookup)
+        answer = await reply_to(text, history=history_for(sender), extra_context=extra)
+        if answer.startswith(_AI_FAILS):
+            quote = fallback_quote(lookup)
+            if quote:
+                logger.warning("Gemini falló; cotizo desde catálogo")
+                answer = quote
+
+    remember(sender, "user", text)
+    remember(sender, "assistant", answer)
     await send_text(sender, answer, user_id)
