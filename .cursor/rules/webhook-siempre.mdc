@@ -1,0 +1,15 @@
+---
+description: Siempre incluir URL de Meta, webhook del túnel y token de verificación
+alwaysApply: true
+---
+
+# Webhook a mano
+
+Cuando el usuario pruebe WhatsApp, el túnel, Meta o el bot, **siempre** cerrá el mensaje con este bloque (valores actuales, no inventes):
+
+1. **Dónde ir en Meta (webhook):** `https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business`
+2. **Callback URL:** `https://<túnel-activo>/webhook` (la del túnel que esté corriendo ahora)
+3. **Servidor local:** `http://127.0.0.1:8000`
+4. **Token de verificación:** `iahaf-verify-cambiar`
+
+No asumas que el usuario tiene la URL a mano. Si el túnel cambió, pegá la nueva. No pongas secretos de `.env` (token de WhatsApp, Gemini, PartsLink).

@@ -10,5 +10,8 @@ tools/
 data/chats.json
 data/learned.json
 data/customers.json
+data/partslink-state.json
+data/partslink-debug.png
+data/shots/
 TOKEN-LOCAL.txt
 

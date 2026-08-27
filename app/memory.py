@@ -38,6 +38,17 @@ def append(sender: str, role: str, text: str) -> None:
     _save(data)
 
 
+def clear_conversation(sender: str) -> None:
+    data = _load()
+    data[sender] = []
+    _save(data)
+    profiles = _load_profiles()
+    if sender in profiles:
+        profiles.pop(sender, None)
+        _save_profiles(profiles)
+    logger.info("Conversación reiniciada para %s", sender)
+
+
 def profile_for(sender: str) -> dict:
     return dict(_load_profiles().get(sender) or {})
 

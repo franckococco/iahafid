@@ -19,6 +19,39 @@ GOT_CHASSIS_ONLY = (
     "Dale, anoté el chasis. ¿Qué pieza estás buscando para ese auto?"
 )
 
+RESET_REPLY = (
+    "Dale, arrancamos de cero. ¿Qué pieza necesitás y para qué auto? "
+    "Si es compleja, pasame el número de chasis."
+)
+
+_RESET = (
+    "nuevo pedido",
+    "nueva consulta",
+    "otra consulta",
+    "otro pedido",
+    "otro auto",
+    "empezar de nuevo",
+    "arrancar de nuevo",
+    "reiniciar",
+    "reset",
+    "olvidate",
+    "de cero",
+)
+
+_PHOTO = (
+    "foto",
+    "imagen",
+    "despiece",
+    "captura",
+    "dibujo",
+    "lamina",
+    "lámina",
+    "screenshot",
+    "mandame la foto",
+    "manda la foto",
+    "el dibujo",
+)
+
 _HANDOFF = (
     "vendedor",
     "persona",
@@ -68,6 +101,16 @@ def fold(text: str) -> str:
 def wants_human(text: str) -> bool:
     blob = fold(text)
     return any(phrase in blob for phrase in _HANDOFF)
+
+
+def wants_reset(text: str) -> bool:
+    blob = fold(text)
+    return any(fold(phrase) in blob for phrase in _RESET)
+
+
+def wants_photo(text: str) -> bool:
+    blob = fold(text)
+    return any(fold(phrase) in blob for phrase in _PHOTO)
 
 
 def extract_chassis(text: str) -> str | None:
@@ -123,6 +166,133 @@ def handoff_reply(chasis: str = "") -> str:
             "Te dejo con un vendedor para ubicar la pieza exacta. En un rato te escriben."
         )
     return HANDOFF_REPLY
+
+
+_PIECE_STOP = {
+    "hola",
+    "buenas",
+    "buen",
+    "dia",
+    "dias",
+    "tardes",
+    "noches",
+    "tenes",
+    "tiene",
+    "hay",
+    "para",
+    "por",
+    "una",
+    "el",
+    "la",
+    "los",
+    "las",
+    "de",
+    "del",
+    "un",
+    "me",
+    "te",
+    "se",
+    "che",
+    "chasis",
+    "chassis",
+    "vin",
+    "numero",
+    "nro",
+    "necesitaria",
+    "necesito",
+    "queria",
+    "quisiera",
+    "busco",
+    "buscar",
+    "sale",
+    "cuanto",
+    "cuales",
+    "productos",
+    "stock",
+    "foto",
+    "imagen",
+    "despiece",
+    "captura",
+    "dibujo",
+    "pasame",
+    "mandame",
+    "manda",
+    "mandar",
+    "favor",
+    "please",
+    "podes",
+    "podrias",
+    "podria",
+    "enviar",
+    "envia",
+    "enviane",
+    "estoy",
+    "necesitando",
+    "codigo",
+    "repuesto",
+    "si",
+    "nuevo",
+    "pedido",
+    "consulta",
+    "reset",
+}
+
+# Con el chasis ya está el auto: no mandar marca/modelo a PartsLink24.
+_VEHICLE_NOISE = {
+    "amarok",
+    "gol",
+    "trend",
+    "peugeot",
+    "citroen",
+    "volkswagen",
+    "vw",
+    "audi",
+    "308",
+    "c3",
+    "auto",
+    "camioneta",
+}
+
+
+_YEAR_TOKEN = re.compile(r"^\d{4}$")
+
+
+def piece_query(text: str, chasis: str = "") -> str:
+    """Texto de la pieza, sin el chasis ni el saludo."""
+    blob = text
+    if chasis:
+        blob = re.sub(re.escape(chasis), " ", blob, flags=re.IGNORECASE)
+    found = extract_chassis(text)
+    if found:
+        blob = re.sub(re.escape(found), " ", blob, flags=re.IGNORECASE)
+    tokens = [
+        token
+        for token in fold(blob).replace("?", " ").replace(".", " ").replace(",", " ").split()
+        if len(token) > 1
+        and token not in _PIECE_STOP
+        and token not in _VEHICLE_NOISE
+        and not token.isdigit()
+        and not _YEAR_TOKEN.match(token)
+    ]
+    return " ".join(tokens)
+
+
+def last_piece_query(user_messages: list[str], current: str, chasis: str = "") -> str:
+    """La pieza de ESTE pedido, no la de un chat anterior (filtro 308 + amortiguador)."""
+    for msg in [current, *reversed(user_messages)]:
+        if extract_chassis(msg) and not piece_query(msg, chasis):
+            continue
+        query = piece_query(msg, chasis)
+        if query:
+            return query
+    return ""
+
+
+def local_quote_ok(matches: list[dict]) -> bool:
+    """Hay un ítem rápido único: se cotiza en el local, sin PartsLink24."""
+    if len(matches) != 1:
+        return False
+    return not needs_chassis(matches)
 
 
 def chassis_context(chasis: str) -> str:

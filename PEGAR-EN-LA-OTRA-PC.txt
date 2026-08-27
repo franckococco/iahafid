@@ -25,10 +25,10 @@ cd iahafid
 
 2) Copiar el .env a mano
 ------------------------
-El .env NO está en GitHub (tiene el token de WhatsApp y el de Gemini).
+El .env NO está en GitHub (tiene el token de WhatsApp, el de Gemini y PartsLink24).
 Copiá el archivo .env de esta PC a la misma carpeta en la otra.
 O copiá TOKEN-LOCAL.txt (está en esta PC, no se sube a GitHub).
-Sin eso el bot no habla ni con WhatsApp ni con Gemini.
+Sin eso el bot no habla ni con WhatsApp ni con Gemini ni entra a PartsLink24.
 
 
 3) Instalar y levantar (PowerShell, dentro de la carpeta)
@@ -36,29 +36,37 @@ Sin eso el bot no habla ni con WhatsApp ni con Gemini.
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
+python -m playwright install chromium
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-En otra ventana:
+En otra ventana (túnel público; la URL CAMBIA cada vez que se cae):
 
-npx localtunnel --port 8000
+ssh -o ServerAliveInterval=30 -R 80:127.0.0.1:8000 nokey@localhost.run
 
-En Meta, webhook:
-URL: https://EL-TUNEL-QUE-TE-DE.loca.lt/webhook
+AHORA (27 ago 2026, se vence):
+Callback URL: https://69bad526627c87.lhr.life/webhook
+Servidor local: http://127.0.0.1:8000
 Token de verificación: iahaf-verify-cambiar
+
+Dónde ir en Meta (webhook):
+https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business
+
 Campo: messages
 
 
 4) Pegar ESTO en Cursor (chat nuevo, carpeta del proyecto abierta)
 ------------------------------------------------------------------
-Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo real: rápido cotiza y aparta; complejo pide CHASIS (cédula/parabrisas), nunca motor, y pasa a vendedor. Los productos se graban en data/products.json y las formas de pedirlos en data/learned.json. Consulta: GET /consulta?q=filtro+308+2014. No regeneres tokens; usá el .env local y iahaf-bot. Próximo paso: hosting con URL fija (Railway) y cargar el Excel con columna tipo rapido/complejo.
+Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor, y busca en PartsLink24. La foto es el DESPIECE (lámina), no la lista de resultados. "nuevo pedido" reinicia. Siempre devolver: URL de Meta webhook + callback del túnel + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. Próximo paso: hosting con URL fija (Railway).
 
 
 5) Cómo vende ahora
 -------------------
-- Rápido (filtro, pastillas): cotiza con marca/modelo/año. Ejemplo: filtro 308 2014 → $12.500.
-- Complejo (kit distribución, motor, caja): pide número de chasis, lo guarda, deriva a vendedor.
+- Rápido (filtro, pastillas): cotiza del catálogo local con marca/modelo/año. Ejemplo: filtro 308 2014 → $12.500.
+- Complejo (faro, amortiguador, radiador): pide número de chasis, busca en PartsLink24, lista códigos OEM.
+- Si pide foto / despiece: abre la lámina y manda esa captura, no el catálogo de la izquierda.
 - Nunca pide número de motor.
 - Si el cliente manda el chasis primero: lo anota y pregunta qué pieza busca.
+- "nuevo pedido" / "otro auto" / "empezar de nuevo" cierra el pedido.
 - Cada consulta que cierra en un solo producto se guarda para la próxima.
 
 
@@ -66,6 +74,8 @@ Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp 
 --------------------------------
 Número de prueba: +1 555-203-0245
 Verify token: iahaf-verify-cambiar
+Servidor local: http://127.0.0.1:8000
 Consulta local: http://127.0.0.1:8000/consulta?q=filtro+308+2014
 App: https://developers.facebook.com/apps/1810396190374656/dashboard/
-Webhook: https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business
+Webhook Meta: https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business
+Callback actual: https://69bad526627c87.lhr.life/webhook

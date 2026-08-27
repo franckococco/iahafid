@@ -16,19 +16,26 @@ from app.catalog import (
     search_manuals,
     search_products,
 )
-from app.config import settings
+from app.config import _ROOT, settings
 from app.memory import append as remember
-from app.memory import history_for, profile_for, set_profile
+from app.memory import clear_conversation, history_for, profile_for, set_profile
 from app.sales import (
     ASK_CHASSIS_REPLY,
     GOT_CHASSIS_ONLY,
+    RESET_REPLY,
     chassis_context,
     extract_chassis,
     handoff_reply,
-    needs_chassis,
+    last_piece_query,
+    local_quote_ok,
+    piece_query,
     wants_human,
+    wants_photo,
+    wants_reset,
 )
-from app.whatsapp import mark_as_read, send_text
+from app.whatsapp import mark_as_read, send_image, send_text
+from app.partslink import enabled as partslink_enabled
+from app.partslink import lookup_reply
 
 _AI_FAILS = "Tuve un problema para generar la respuesta."
 
@@ -75,6 +82,24 @@ async def health():
 async def consulta(q: str = Query(default="")):
     """Consulta el catálogo grabado (productos + lo aprendido de chats)."""
     return {"q": q, "productos": find_products(q)}
+
+
+@app.get("/partslink")
+async def partslink_consulta(
+    chasis: str = Query(default=""),
+    q: str = Query(default=""),
+    token: str = Query(default=""),
+):
+    """Prueba local: /partslink?chasis=...&q=amortiguadores&token=iahaf-verify-cambiar"""
+    if token != settings.whatsapp_verify_token:
+        raise HTTPException(status_code=403, detail="Token inválido")
+    if not partslink_enabled():
+        raise HTTPException(status_code=503, detail="PartsLink24 no está configurado")
+    if not chasis or not q:
+        raise HTTPException(status_code=400, detail="Faltan chasis y q")
+    from app.partslink import lookup
+
+    return await lookup(chasis, q)
 
 
 @app.get("/webhook")
@@ -137,25 +162,77 @@ async def _handle_message(message: dict) -> None:
     logger.info("De %s: %s", sender, text)
     asyncio.create_task(mark_as_read(message_id))
 
+    if wants_reset(text):
+        clear_conversation(sender)
+        remember(sender, "user", text)
+        remember(sender, "assistant", RESET_REPLY)
+        await send_text(sender, RESET_REPLY, user_id)
+        return
+
     found_chassis = extract_chassis(text)
+    previous = str(profile_for(sender).get("chasis") or "")
+    if found_chassis and previous and found_chassis != previous:
+        clear_conversation(sender)
+        logger.info("Chasis distinto: se cierra el pedido anterior")
     if found_chassis:
         set_profile(sender, chasis=found_chassis)
         logger.info("Chasis de %s: %s", sender, found_chassis)
     chasis = found_chassis or str(profile_for(sender).get("chasis") or "")
 
-    past = " ".join(
+    past_msgs = [
         turn["text"] for turn in history_for(sender) if turn.get("role") == "user"
-    )
-    lookup = f"{past} {text}".strip()
+    ]
+    lookup = f"{' '.join(past_msgs)} {text}".strip()
     matches = find_products(lookup)
     remember_match(text, matches)
+    pieza = last_piece_query(past_msgs, text, chasis)
+    stored = str(profile_for(sender).get("pieza") or "")
+    if wants_photo(text):
+        extra = piece_query(text, chasis)
+        pieza = extra or stored or last_piece_query(past_msgs, "", chasis)
+    if pieza:
+        logger.info("Pieza a buscar: %s", pieza)
 
-    if wants_human(text):
+    shot = _ROOT / "data" / "shots" / f"{sender}.png"
+
+    if wants_photo(text):
+        if chasis and pieza and partslink_enabled():
+            await send_text(sender, "Dame un segundo, abro el despiece.", user_id)
+            answer = await lookup_reply(chasis, pieza, screenshot_to=str(shot))
+            if shot.exists():
+                await send_image(sender, shot, "Despiece del catálogo.", user_id)
+            else:
+                answer = "Ubicé la pieza pero no pude sacar la foto del despiece."
+        else:
+            answer = "Primero ubicamos la pieza (con el chasis). Después pedime la foto."
+    elif wants_human(text):
         answer = handoff_reply(chasis)
-    elif found_chassis and not matches:
-        answer = GOT_CHASSIS_ONLY
-    elif needs_chassis(matches) and not chasis:
+    elif local_quote_ok(matches):
+        extra = (
+            search_products(lookup)
+            + "\n\n"
+            + chassis_context(chasis)
+            + "\n\n"
+            + search_manuals(lookup)
+        )
+        answer = await reply_to(text, history=history_for(sender), extra_context=extra)
+        if answer.startswith(_AI_FAILS):
+            quote = fallback_quote(lookup)
+            if quote:
+                logger.warning("Gemini falló; cotizo desde catálogo")
+                answer = quote
+    elif pieza and not chasis:
         answer = ASK_CHASSIS_REPLY
+    elif chasis and not pieza:
+        answer = GOT_CHASSIS_ONLY
+    elif chasis and pieza and partslink_enabled():
+        await send_text(
+            sender,
+            "Dame un segundo, busco esa pieza por el chasis en el catálogo.",
+            user_id,
+        )
+        answer = await lookup_reply(chasis, pieza)
+        set_profile(sender, chasis=chasis, pieza=pieza)
     elif matches and is_complex(matches[0]) and chasis:
         answer = handoff_reply(chasis)
     else:

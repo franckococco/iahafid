@@ -31,7 +31,8 @@ Número de prueba `+1 555-203-0245`: solo habla con hasta **5** celulares autori
 - Memoria: últimos 16 mensajes por cliente (`data/chats.json`, no se sube).
 - Manuales: hoy un `.txt` de prueba; por mensaje manda los 3 mejores, 700 caracteres. Los PDF completos van después (buscar el párrafo útil, no pegar el archivo entero).
 - Si pide vendedor / reclamo / garantía, deriva sin pasar por la IA.
-- Dockerfile listo para hosting (Railway) con URL fija. Hasta que no esté online, `localtunnel` cambia y hay que actualizar el webhook.
+- Dockerfile listo para hosting (Railway) con URL fija. Hasta que no esté online, el túnel (`localhost.run`) cambia y hay que actualizar el webhook.
+- PartsLink24 (Playwright): con chasis busca la pieza en el catálogo OEM. La foto es la **lámina del despiece**, no la lista de resultados. "nuevo pedido" reinicia el chat.
 
 ## Meta (ya armado, no repetir)
 
@@ -54,11 +55,19 @@ Enlaces:
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+python -m playwright install chromium
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-npx localtunnel --port 8000
+ssh -o ServerAliveInterval=30 -R 80:127.0.0.1:8000 nokey@localhost.run
 ```
 
-Webhook en Meta: `https://TU-TUNEL.loca.lt/webhook` + `iahaf-verify-cambiar`.
+En Meta pegar siempre:
+
+- Dónde ir: https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business
+- Callback (cambia): `https://EL-TUNEL.lhr.life/webhook`
+- Servidor local: `http://127.0.0.1:8000`
+- Token: `iahaf-verify-cambiar`
+
+Ahora (vence): `https://69bad526627c87.lhr.life/webhook`
 
 El `.env` se copia de la otra PC (nunca de GitHub). `AI_MODE=openai`, modelo `gemini-3.6-flash`.
 
@@ -66,6 +75,7 @@ El `.env` se copia de la otra PC (nunca de GitHub). `AI_MODE=openai`, modelo `ge
 
 1. Subir a Railway (URL fija, dejar de reiniciar túnel).
 2. Cargar el Excel real con columna `tipo` (rapido/complejo).
-3. Aviso al vendedor cuando derive.
-4. Manuales: buscar el párrafo útil.
-5. Número de WhatsApp Business propio.
+3. Precios del proveedor (scrape, no inventar).
+4. Aviso al vendedor cuando derive.
+5. Manuales: buscar el párrafo útil.
+6. Número de WhatsApp Business propio.

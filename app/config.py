@@ -38,5 +38,11 @@ class Settings(BaseSettings):
         "(2014 en 2012-2018). No inventes códigos, precios ni disponibilidad."
     )
 
+    partslink24_enabled: bool = True
+    partslink24_company_id: str = ""
+    partslink24_user: str = ""
+    partslink24_password: str = ""
+    partslink24_base_url: str = "https://www.partslink24.com"
+
 
 settings = Settings()

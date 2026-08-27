@@ -63,6 +63,57 @@ async def send_text(to: str, body: str, user_id: str = "") -> bool:
         return False
 
 
+async def send_image(to: str, path, caption: str = "", user_id: str = "") -> bool:
+    from pathlib import Path
+
+    image = Path(path)
+    if not image.exists():
+        logger.warning("No hay imagen para enviar: %s", image)
+        return False
+    media_id = await _upload_media(image)
+    if not media_id:
+        return False
+    url = f"{GRAPH_URL}/{settings.whatsapp_phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {settings.whatsapp_token}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        for recipient in recipient_candidates(to, user_id):
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": recipient,
+                "type": "image",
+                "image": {"id": media_id, "caption": caption[:1024]},
+            }
+            response = await client.post(url, json=payload, headers=headers)
+            if response.status_code < 400:
+                logger.info("WhatsApp image OK to %s", recipient)
+                _working_recipients[to] = recipient
+                return True
+            logger.warning("WhatsApp image %s failed: %s", recipient, response.text[:400])
+    return False
+
+
+async def _upload_media(path) -> str:
+    url = f"{GRAPH_URL}/{settings.whatsapp_phone_number_id}/media"
+    headers = {"Authorization": f"Bearer {settings.whatsapp_token}"}
+    mime = "image/png" if str(path).lower().endswith(".png") else "image/jpeg"
+    async with httpx.AsyncClient(timeout=60) as client:
+        with path.open("rb") as handle:
+            response = await client.post(
+                url,
+                headers=headers,
+                data={"messaging_product": "whatsapp", "type": mime},
+                files={"file": (path.name, handle, mime)},
+            )
+        if response.status_code >= 400:
+            logger.error("WhatsApp media upload failed: %s", response.text[:400])
+            return ""
+        return str(response.json().get("id") or "")
+
+
 async def mark_as_read(message_id: str) -> None:
     url = f"{GRAPH_URL}/{settings.whatsapp_phone_number_id}/messages"
     payload = {
