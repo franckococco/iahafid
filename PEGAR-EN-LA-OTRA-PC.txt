@@ -63,7 +63,7 @@ Si cambió la URL del túnel, pegala de nuevo y Verify and save.
 
 4) Pegar ESTO en Cursor (chat nuevo, carpeta del proyecto abierta)
 ------------------------------------------------------------------
-Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor, y busca en PartsLink24. Si la pieza es ambigua (bomba, filtro), PREGUNTA el tipo antes de buscar. "bomba de agua" busca bomba refrigerante y tira combustible/aceite/inyector/deflector. La foto es el DESPIECE (lámina), no la lista de resultados. "nuevo pedido" reinicia. uvicorn sin --reload. Túnel: arrancar.ps1 / scripts/keep_tunnel.py (localhost.run, la URL cambia). Siempre devolver: URL de Meta webhook + callback del túnel + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. No subas .env. Próximo paso: hosting con URL fija (Railway). Estado al 28 ago 2026: el usuario va a probar WhatsApp (bomba de agua Bora TDI chasis 3VWSP49MX6M031230).
+Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor, y busca en PartsLink24. Si la pieza es ambigua (bomba, filtro), PREGUNTA el tipo antes de buscar. "bomba de agua" busca "bomba para liquido refrigerante" y SOLO lista artículos cuyo nombre ES la bomba (no tubo/sensor/radiador que la mencionan). La foto es el DESPIECE (lámina), no la lista de resultados. "nuevo pedido" reinicia. uvicorn sin --reload. Túnel: arrancar.ps1 / scripts/keep_tunnel.py (localhost.run, la URL cambia). Siempre devolver: URL de Meta webhook + callback del túnel + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. No subas .env. Próximo paso: hosting con URL fija (Railway).
 
 
 5) Cómo vende ahora
@@ -71,7 +71,7 @@ Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp 
 - Rápido (filtro, pastillas): cotiza del catálogo local con marca/modelo/año. Ejemplo: filtro 308 2014 → $12.500.
 - Complejo: pide número de chasis, busca en PartsLink24, lista códigos OEM.
 - Pieza ambigua: pregunta. "bomba" → ¿agua/refrigeración, combustible, aceite, dirección o vacío? "filtro" → ¿aceite, aire, combustible o habitáculo? Amortiguador → delantera/trasera. Faro → izquierda/derecha.
-- "bomba de agua": busca "bomba refrigerante" y no lista combustible, aceite, vacío, inyector ni deflector.
+- "bomba de agua": busca "bomba para liquido refrigerante". Solo pasa si el nombre del artículo ES la bomba (arranca con bomba/impulsor). No lista tubo, sensor ni radiador aunque digan "bomba refrigerante".
 - Si hay bomba completa y también solo el impulsor, pregunta cuál.
 - Respuestas cortas ("la de agua", "refrigeración", "delantera") se juntan con la pieza ya anotada.
 - Si pide foto / despiece: abre la lámina y manda esa captura, no el catálogo de la izquierda.
@@ -99,12 +99,14 @@ System user: iahaf-bot
 Chat de prueba (from): 5493884801324 — a veces hay que enviar como 54388154801324 (app/whatsapp.py)
 
 
-7) Notas del chat (hasta 28 ago 2026, antes de la prueba WhatsApp)
--------------------------------------------------------------------
-- Pedido: bomba de agua para BORA 2006 AXR 1.9 TDI, chasis 3VWSP49MX6M031230.
-- El bot pidió el chasis bien. PartsLink abrió el Bora.
-- Fallo: listó bomba de combustible/vacío, turbo, deflector de agua, bomba de aceite e inyector. Causa: el buscador mezclaba "bomba" O "agua".
-- Arreglo en código: familia de pieza + preguntas + búsqueda "bomba refrigerante".
-- Túnel localhost.run se cae y cambia de URL; keep_tunnel.py reconecta. La URL de arriba es la viva ahora. Si WhatsApp no llega, re-pegar en Meta.
-- Hosting fijo (Railway) sigue pendiente. No commitear .env ni .playwright-browsers ni data/tunnel-url.txt.
-- El usuario prueba WhatsApp ahora: nuevo pedido + misma bomba de agua / mismo chasis.
+7) Notas del chat (28 ago 2026)
+--------------------------------
+- 1ª prueba: bomba de agua BORA 2006 AXR 1.9 TDI, chasis 3VWSP49MX6M031230.
+  Fallo: listó combustible/vacío, turbo, deflector de agua, aceite e inyector (mezclaba "bomba" O "agua").
+  Arreglo: familia de pieza + preguntas + no listar esas otras bombas.
+- 2ª prueba: bomba de agua BORA 2010 1.9 diesel, chasis 3VWSW49M5AM001581.
+  Fallo: listó tubo flexible, sensor de temperatura y radiadores (el circuito nombra "bomba refrigerante").
+  Arreglo: el artículo tiene que SER la bomba (primera palabra útil = bomba/impulsor/rodete). Búsqueda "bomba para liquido refrigerante"; si no hay filas, prueba "bomba" y filtra.
+- Túnel localhost.run se cae y cambia de URL; keep_tunnel.py reconecta. Callback viva abajo. Si WhatsApp no llega, re-pegar en Meta.
+- Hosting fijo (Railway) pendiente. No commitear .env ni .playwright-browsers ni data/tunnel-url.txt.
+- Probar de nuevo: *nuevo pedido* + bomba de agua + chasis.

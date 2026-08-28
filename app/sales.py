@@ -253,6 +253,7 @@ _PIECE_STOP = {
     "quisiera",
     "busco",
     "buscar",
+    "buscando",
     "sale",
     "cuanto",
     "cuales",
@@ -390,7 +391,7 @@ _FILTER_KIND_MARKERS = {
     "combustible": ("combustible", "gasoil", "nafta"),
 }
 _SEARCH_PUMP = {
-    "agua": "bomba refrigerante",
+    "agua": "bomba para liquido refrigerante",
     "combustible": "bomba combustible",
     "aceite": "bomba aceite",
     "direccion": "bomba direccion",
@@ -511,7 +512,7 @@ def search_queries(query: str) -> list[str]:
     if folded and folded not in out:
         out.append(folded)
     if pump_kind_wanted(query) == "agua":
-        for alt in ("bomba liquido refrigerante", "bomba agua"):
+        for alt in ("bomba liquido refrigerante", "bomba"):
             if alt not in out:
                 out.append(alt)
     return out

@@ -33,11 +33,11 @@ Número de prueba `+1 555-203-0245`: solo habla con hasta **5** celulares autori
 - Si pide vendedor / reclamo / garantía, deriva sin pasar por la IA.
 - Dockerfile listo para hosting (Railway) con URL fija. Hasta que no esté online, el túnel (`localhost.run`) cambia y hay que actualizar el webhook.
 - PartsLink24 (Playwright): con chasis busca la pieza en el catálogo OEM. La foto es la **lámina del despiece**, no la lista de resultados. "nuevo pedido" reinicia el chat.
-- Pieza ambigua: pregunta el tipo (bomba, filtro) o eje/lado. "bomba de agua" busca refrigerante y descarta combustible/aceite/inyector/deflector.
+- Pieza ambigua: pregunta el tipo (bomba, filtro) o eje/lado. "bomba de agua" busca "bomba para liquido refrigerante" y solo lista el artículo que ES la bomba (no tubo/sensor/radiador).
 - VW VIN de 17 abre el auto. Peugeot last-8: `data/peugeot-chasis.json` y entra por logo Peugeot (Acceso directo no indexa esos 8).
 - Pedido chasis / listas OEM: plantillas (Gemini no; cortaba y filtraba el prompt).
 - Túnel: `arrancar.ps1` o `scripts/keep_tunnel.py`. uvicorn **sin** `--reload`.
-- Estado: 28 ago 2026 el usuario prueba WhatsApp (bomba de agua Bora TDI, chasis `3VWSP49MX6M031230`).
+- Estado: 28 ago 2026, 2ª prueba WhatsApp (Bora 2010 `3VWSW49M5AM001581`) filtró mal el circuito; corregido por sujeto del nombre.
 
 ## Meta (ya armado, no repetir)
 

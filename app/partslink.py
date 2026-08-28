@@ -572,7 +572,10 @@ async def _run_part_search(page, term: str) -> list[dict]:
 
 async def _search_parts(page, query: str) -> list[dict]:
     last: list[dict] = []
-    for term in search_queries(query)[:2]:
+    terms = search_queries(query)
+    if not pump_kind_wanted(query):
+        terms = terms[:2]
+    for term in terms:
         logger.info("PartsLink24 busca pieza %r (pedido %r)", term, query)
         rows = await _run_part_search(page, term)
         scored = _rank_rows(rows, query)
@@ -838,30 +841,42 @@ def _item_blob(item: dict) -> str:
     )
 
 
+def _piece_subject(name: str) -> str:
+    """Primera palabra útil: 'tubo flexible … bomba' → tubo, no bomba."""
+    skip = {"el", "la", "los", "las", "un", "una", "para", "de", "del", "con", "por", "al", "y"}
+    text = fold(name)
+    for ch in "()[]/.,-;:":
+        text = text.replace(ch, " ")
+    for word in text.split():
+        if len(word) > 2 and word not in skip:
+            return word
+    return ""
+
+
+def _is_pump_article(item: dict) -> bool:
+    subject = _piece_subject(str(item.get("name") or ""))
+    return subject in {"bomba", "pump", "impulsor", "rodete"}
+
+
 def _rank_pump_rows(rows: list[dict], kind: str) -> list[dict]:
     exclude = _PUMP_EXCLUDE.get(kind, ())
     require = _PUMP_REQUIRE.get(kind, ())
     scored: list[tuple[int, dict]] = []
     for item in rows:
+        if not _is_pump_article(item):
+            continue
+        name = fold(str(item.get("name") or ""))
         blob = _item_blob(item)
         if any(word in blob for word in exclude):
             continue
-        if kind == "agua" and "deflector" in blob:
+        if kind == "agua" and "deflector" in name:
             continue
-        marks = sum(1 for word in require if word in blob)
-        has_pump = "bomba" in blob or "pump" in blob
-        if kind == "agua":
-            if not marks and not has_pump:
-                continue
-            score = marks * 4 + (2 if has_pump else 0)
-            scored.append((score, item))
+        marks = sum(1 for word in require if word in name or word in blob)
+        if kind == "agua" and not marks:
             continue
         if not marks:
             continue
-        scored.append((marks + (1 if has_pump else 0), item))
-    if kind == "agua":
-        strong = [(score, item) for score, item in scored if score >= 4]
-        scored = strong or [(score, item) for score, item in scored if score > 0]
+        scored.append((marks, item))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in scored][:8]
 
