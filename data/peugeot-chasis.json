@@ -1,0 +1,192 @@
+{
+  "1W004312": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2000",
+    "amlat": false,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.6 i 90",
+    "motor_code": "",
+    "caja": "CVM 5"
+  },
+  "40361254": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2001",
+    "amlat": false,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.9 D",
+    "motor_code": "DW8",
+    "caja": "CVM 5"
+  },
+  "1W062128": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2002",
+    "amlat": false,
+    "carroceria": "BERLINA 3 PUERTAS",
+    "motor": "2.0 i 16v 138",
+    "motor_code": "",
+    "caja": "CVM 5"
+  },
+  "5G006041": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2004",
+    "amlat": false,
+    "carroceria": "BERLINA 3 PUERTAS",
+    "motor": "1.6 i 16v 110",
+    "motor_code": "TU5JP4",
+    "caja": "CVM 5"
+  },
+  "5G018009": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2005",
+    "amlat": false,
+    "carroceria": "BERLINA 3 PUERTAS",
+    "motor": "1.4 i 75",
+    "motor_code": "TU3JP",
+    "caja": "CVM 5"
+  },
+  "7G078386": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2007",
+    "amlat": false,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.6 i 16v 110",
+    "motor_code": "TU5JP4",
+    "caja": "CVM 5"
+  },
+  "8G030041": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2007",
+    "amlat": false,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.9 D 71",
+    "motor_code": "DW8B",
+    "caja": "CVM 5"
+  },
+  "BG039338": {
+    "marca": "peugeot",
+    "modelo": "206",
+    "anio": "2010",
+    "amlat": false,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.4 i 75",
+    "motor_code": "TU3JP",
+    "caja": "CVM 5"
+  },
+  "9B045639": {
+    "marca": "peugeot",
+    "modelo": "207",
+    "anio": "2009",
+    "amlat": true,
+    "carroceria": "BERLINA 4 PUERTAS",
+    "motor": "1.9 D 71",
+    "motor_code": "DW8B",
+    "caja": "CVM 5"
+  },
+  "DB025072": {
+    "marca": "peugeot",
+    "modelo": "207",
+    "anio": "2013",
+    "amlat": true,
+    "carroceria": "BERLINA 4 PUERTAS",
+    "motor": "1.4 i 75",
+    "motor_code": "TU3JP",
+    "caja": "CVM 5"
+  },
+  "GG008656": {
+    "marca": "peugeot",
+    "modelo": "207",
+    "anio": "2015",
+    "amlat": true,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.4 i 75",
+    "motor_code": "TU3JP",
+    "caja": "CVM 5"
+  },
+  "FG021112": {
+    "marca": "peugeot",
+    "modelo": "207",
+    "anio": "2015",
+    "amlat": true,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.4 HDI 70",
+    "motor_code": "",
+    "caja": "CVM 5"
+  },
+  "AG041854": {
+    "marca": "peugeot",
+    "modelo": "207",
+    "anio": "2010",
+    "amlat": true,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.6 i 16v 110",
+    "motor_code": "TU5JP4",
+    "caja": "CVM 5"
+  },
+  "BW002850": {
+    "marca": "peugeot",
+    "modelo": "207",
+    "anio": "2011",
+    "amlat": false,
+    "carroceria": "BERLINA 3 PUERTAS",
+    "motor": "1.6 THP 16v 150",
+    "motor_code": "EP6DT",
+    "caja": "CVM6"
+  },
+  "DG068431": {
+    "marca": "peugeot",
+    "modelo": "207",
+    "anio": "2013",
+    "amlat": true,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.4 HDI 70",
+    "motor_code": "",
+    "caja": "CVM 5"
+  },
+  "GB020887": {
+    "marca": "peugeot",
+    "modelo": "208",
+    "anio": "2015",
+    "amlat": true,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.6 VTi 16v 115",
+    "motor_code": "EC5",
+    "caja": "CVM5"
+  },
+  "GB028285": {
+    "marca": "peugeot",
+    "modelo": "208",
+    "anio": "2016",
+    "amlat": false,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.6 VTI 16V",
+    "motor_code": "",
+    "caja": ""
+  },
+  "JB001078": {
+    "marca": "peugeot",
+    "modelo": "208",
+    "anio": "2017",
+    "amlat": true,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.45 i",
+    "motor_code": "TU4",
+    "caja": "CVM5"
+  },
+  "HB036795": {
+    "marca": "peugeot",
+    "modelo": "208",
+    "anio": "2017",
+    "amlat": true,
+    "carroceria": "BERLINA 5 PUERTAS",
+    "motor": "1.6 THP 16v 163",
+    "motor_code": "EP6FDT",
+    "caja": "CVM6"
+  }
+}

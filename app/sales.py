@@ -24,6 +24,11 @@ RESET_REPLY = (
     "Si es compleja, pasame el número de chasis."
 )
 
+NEED_DETAILS = (
+    "Contame qué pieza necesitás y para qué auto. "
+    "Si es compleja, pasame el chasis de la cédula o el parabrisas."
+)
+
 _RESET = (
     "nuevo pedido",
     "nueva consulta",
@@ -93,6 +98,45 @@ _HINT = re.compile(
 _MOTOR_HINT = re.compile(r"\b(motor|nro\.?\s*(de\s*)?motor|numero\s+de\s+motor)\b", re.IGNORECASE)
 
 
+def brand_hint(*texts: str) -> str:
+    """Marca del auto para entrar al catálogo correcto en PartsLink24."""
+    blob = fold(" ".join(t for t in texts if t))
+    if "peugeot" in blob:
+        return "peugeot"
+    if "citroen" in blob:
+        return "citroen"
+    if "volkswagen" in blob or re.search(r"\bvw\b", blob):
+        return "volkswagen"
+    return ""
+
+
+def model_hint(*texts: str) -> str:
+    """Modelo (207, 308…) para el catálogo Peugeot cuando el chasis es corto."""
+    blob = fold(" ".join(t for t in texts if t))
+    for item in (
+        "2008",
+        "3008",
+        "5008",
+        "partner",
+        "rifter",
+        "207",
+        "208",
+        "308",
+        "408",
+        "301",
+        "206",
+        "307",
+        "306",
+        "205",
+        "108",
+        "107",
+        "106",
+    ):
+        if re.search(rf"\b{item}\b", blob):
+            return item
+    return ""
+
+
 def fold(text: str) -> str:
     normalized = unicodedata.normalize("NFD", text.lower())
     return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
@@ -136,6 +180,11 @@ def extract_chassis(text: str) -> str | None:
                 continue
             if 8 <= len(code) <= 17 and _looks_like_chassis(code):
                 return code
+    # Pegaron solo el código (8–17), típico cuando pedimos el chasis.
+    if len(tokens) == 1:
+        code = tokens[0].upper()
+        if 8 <= len(code) <= 17 and _looks_like_chassis(code):
+            return code
     return None
 
 
@@ -231,6 +280,15 @@ _PIECE_STOP = {
     "codigo",
     "repuesto",
     "si",
+    "no",
+    "paso",
+    "ese",
+    "esa",
+    "esos",
+    "esas",
+    "este",
+    "esta",
+    "esto",
     "nuevo",
     "pedido",
     "consulta",
@@ -240,6 +298,15 @@ _PIECE_STOP = {
 # Con el chasis ya está el auto: no mandar marca/modelo a PartsLink24.
 _VEHICLE_NOISE = {
     "amarok",
+    "bora",
+    "golf",
+    "vento",
+    "fox",
+    "suran",
+    "saveiro",
+    "polo",
+    "passat",
+    "tiguan",
     "gol",
     "trend",
     "peugeot",
@@ -251,10 +318,203 @@ _VEHICLE_NOISE = {
     "c3",
     "auto",
     "camioneta",
+    "axr",
+    "tdi",
+    "tsi",
+    "fsi",
+    "diesel",
+    "nafta",
+    "turbo",
+    "8v",
+    "16v",
+    "20v",
 }
 
 
 _YEAR_TOKEN = re.compile(r"^\d{4}$")
+
+_AXLE_FRONT = ("delantero", "adelante", "frente", "trompa")
+_AXLE_REAR = ("trasero", "atras", "zaga")
+_SIDE_LEFT = ("izquierdo",)
+_SIDE_RIGHT = ("derecho",)
+_NEED_AXLE = ("amortiguador", "elastico", "espiral", "resorte", "muehle")
+_NEED_SIDE = ("faro", "piloto", "optica", "espejo", "guardabarro", "calota")
+_POSITION_WORDS = _AXLE_FRONT + _AXLE_REAR + _SIDE_LEFT + _SIDE_RIGHT
+
+
+def axle_wanted(query: str) -> str:
+    blob = fold(query)
+    if any(word in blob for word in _AXLE_FRONT):
+        return "delantero"
+    if any(word in blob for word in _AXLE_REAR):
+        return "trasero"
+    return ""
+
+
+def side_wanted(query: str) -> str:
+    blob = fold(query)
+    if any(word in blob for word in _SIDE_LEFT):
+        return "izquierdo"
+    if any(word in blob for word in _SIDE_RIGHT):
+        return "derecho"
+    return ""
+
+
+def needs_axle_clarify(query: str) -> bool:
+    blob = fold(query)
+    return any(word in blob for word in _NEED_AXLE) and not axle_wanted(query)
+
+
+def needs_side_clarify(query: str) -> bool:
+    blob = fold(query)
+    return any(word in blob for word in _NEED_SIDE) and not side_wanted(query)
+
+
+def is_position_only(query: str) -> bool:
+    tokens = [token for token in fold(query).split() if token]
+    return bool(tokens) and all(token in _POSITION_WORDS for token in tokens)
+
+
+_PUMP_KIND_MARKERS = {
+    "agua": ("agua", "refriger", "refrigerante", "refrigeracion"),
+    "combustible": ("combustible", "gasolina", "gasoil", "nafta"),
+    "aceite": ("aceite",),
+    "direccion": ("direccion", "hidraulic"),
+    "vacio": ("vacio",),
+    "inyector": ("inyector",),
+}
+_FILTER_KIND_MARKERS = {
+    "habitaculo": ("habitaculo", "polen", "cabina"),
+    "aceite": ("aceite",),
+    "aire": ("aire",),
+    "combustible": ("combustible", "gasoil", "nafta"),
+}
+_SEARCH_PUMP = {
+    "agua": "bomba refrigerante",
+    "combustible": "bomba combustible",
+    "aceite": "bomba aceite",
+    "direccion": "bomba direccion",
+    "vacio": "bomba vacio",
+    "inyector": "unidad bomba inyector",
+}
+_KIND_WORDS = frozenset(
+    marker
+    for markers in (*_PUMP_KIND_MARKERS.values(), *_FILTER_KIND_MARKERS.values())
+    for marker in markers
+) | {
+    "refrigeracion",
+    "completa",
+    "carcasa",
+    "impulsor",
+    "rodete",
+    "electrica",
+    "mecanica",
+    "sola",
+    "solo",
+}
+_CLARIFY_SKIP = frozenset({"si", "sip", "dale", "ok", "okay", "bien", "claro", "no"})
+_VARIANT_WORDS = frozenset(
+    {"completa", "carcasa", "impulsor", "rodete", "electrica", "mecanica", "sola", "solo"}
+)
+
+
+def pump_kind_wanted(query: str) -> str:
+    blob = fold(query)
+    if "bomba" not in blob:
+        return ""
+    for kind, markers in _PUMP_KIND_MARKERS.items():
+        if any(marker in blob for marker in markers):
+            return kind
+    return ""
+
+
+def filter_kind_wanted(query: str) -> str:
+    blob = fold(query)
+    if "filtro" not in blob:
+        return ""
+    for kind, markers in _FILTER_KIND_MARKERS.items():
+        if any(marker in blob for marker in markers):
+            return kind
+    return ""
+
+
+def piece_clarify_ask(query: str) -> str:
+    """Si la pieza es ambigua, qué preguntar antes de ir al catálogo."""
+    blob = fold(query)
+    if "bomba" in blob and not pump_kind_wanted(query):
+        return "de agua (refrigeración), de combustible, de aceite, de dirección o de vacío"
+    if "filtro" in blob and not filter_kind_wanted(query):
+        return "de aceite, de aire, de combustible o de habitáculo"
+    return ""
+
+
+def is_clarify_only(query: str) -> bool:
+    """Respuesta corta a una pregunta (la de agua, refrigeración, delantera)."""
+    if is_position_only(query):
+        return True
+    tokens = [token for token in fold(query).split() if token and token not in _CLARIFY_SKIP]
+    if not tokens:
+        return False
+    allowed = _KIND_WORDS | set(_POSITION_WORDS)
+    return all(token in allowed for token in tokens)
+
+
+def merge_piece(stored: str, extra: str) -> str:
+    """Junta 'bomba' + 'agua', o cambia el tipo: 'bomba agua' + 'combustible'."""
+    extra_f = fold(extra).strip()
+    stored_f = fold(stored).strip()
+    if not extra_f:
+        return stored_f
+    if not stored_f:
+        return extra_f
+    extra_tokens = [token for token in extra_f.split() if token not in _CLARIFY_SKIP]
+    if not extra_tokens:
+        return stored_f
+
+    def _unique(tokens: list[str]) -> str:
+        seen: set[str] = set()
+        out: list[str] = []
+        for token in tokens:
+            if token and token not in seen:
+                seen.add(token)
+                out.append(token)
+        return " ".join(out)
+
+    if is_position_only(" ".join(extra_tokens)):
+        return _unique(stored_f.split() + extra_tokens)
+    if all(token in _VARIANT_WORDS for token in extra_tokens):
+        return _unique(stored_f.split() + extra_tokens)
+    if all(token in _KIND_WORDS for token in extra_tokens):
+        kept = [token for token in stored_f.split() if token not in _KIND_WORDS]
+        return _unique(kept + extra_tokens)
+    return extra_f
+
+
+def catalog_search_query(query: str) -> str:
+    """Término que entiende PartsLink24, no el de mostrador."""
+    kind = pump_kind_wanted(query)
+    if kind:
+        return _SEARCH_PUMP.get(kind, fold(query))
+    fkind = filter_kind_wanted(query)
+    if fkind == "habitaculo":
+        return "filtro habitaculo"
+    if fkind:
+        return f"filtro {fkind}"
+    return fold(query)
+
+
+def search_queries(query: str) -> list[str]:
+    """Primero el término del catálogo; si no hay filas, el pedido original."""
+    primary = catalog_search_query(query)
+    folded = fold(query)
+    out = [primary]
+    if folded and folded not in out:
+        out.append(folded)
+    if pump_kind_wanted(query) == "agua":
+        for alt in ("bomba liquido refrigerante", "bomba agua"):
+            if alt not in out:
+                out.append(alt)
+    return out
 
 
 def piece_query(text: str, chasis: str = "") -> str:
@@ -288,11 +548,94 @@ def last_piece_query(user_messages: list[str], current: str, chasis: str = "") -
     return ""
 
 
-def local_quote_ok(matches: list[dict]) -> bool:
+def local_quote_ok(matches: list[dict], query: str = "") -> bool:
     """Hay un ítem rápido único: se cotiza en el local, sin PartsLink24."""
     if len(matches) != 1:
         return False
-    return not needs_chassis(matches)
+    if needs_chassis(matches):
+        return False
+    if not query.strip():
+        return True
+    item = matches[0]
+    producto = fold(str(item.get("producto") or ""))
+    name_words = [word for word in producto.split() if len(word) > 3]
+    blob = fold(query)
+    if name_words and not any(word in blob for word in name_words):
+        return False
+    modelo = fold(str(item.get("modelo") or ""))
+    for token in re.findall(r"\b\d{3}\b", blob):
+        if modelo and token not in modelo:
+            return False
+    return True
+
+
+_HANGING = {
+    "el",
+    "la",
+    "los",
+    "las",
+    "de",
+    "del",
+    "un",
+    "una",
+    "unos",
+    "unas",
+    "por",
+    "para",
+    "con",
+    "que",
+    "y",
+    "o",
+    "al",
+    "lo",
+    "se",
+    "me",
+    "te",
+    "necesito",
+    "preciso",
+    "busco",
+    "tenes",
+    "tiene",
+}
+
+_LEAK_MARKERS = (
+    "rules:",
+    "system prompt",
+    "system_instruction",
+    "informacion interna",
+    "hechos de esta consulta",
+    "hechos (precios",
+    "un vendedor humano entra solo",
+    "no inventes codigos",
+    "no inventes otros",
+    "los hechos mandan",
+    "asi contestamos consultas",
+    "sos iahaf",
+    "ai_system_prompt",
+    "copia el tono",
+    "copiá el tono",
+)
+
+SAFE_FALLBACK = (
+    "Disculpá, se me cortó el mensaje. "
+    "¿Me repetís la pieza y el auto? Si es compleja, pasame el chasis."
+)
+
+
+def is_sendable(text: str) -> bool:
+    """False si Gemini cortó la frase o filtró instrucciones internas."""
+    raw = (text or "").strip()
+    if len(raw) < 8:
+        return False
+    blob = fold(raw)
+    if raw.lower().lstrip().startswith("rules"):
+        return False
+    if any(fold(marker) in blob for marker in _LEAK_MARKERS):
+        return False
+    last = fold(re.sub(r"[^\wáéíóúñ]+$", "", raw.split()[-1], flags=re.IGNORECASE))
+    if last in _HANGING:
+        return False
+    return True
 
 
 def chassis_context(chasis: str) -> str:

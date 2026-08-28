@@ -262,6 +262,7 @@ def _load_learned() -> dict:
     if not isinstance(data, dict):
         return {"phrases": {}}
     data.setdefault("phrases", {})
+    data.setdefault("replies", [])
     return data
 
 

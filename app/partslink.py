@@ -3,24 +3,50 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import re
 
 from pathlib import Path
 
 from app.config import _ROOT, settings
-from app.sales import fold
+from app.sales import (
+    axle_wanted,
+    fold,
+    needs_axle_clarify,
+    needs_side_clarify,
+    pump_kind_wanted,
+    search_queries,
+    side_wanted,
+)
+
+# Cursor a veces apunta Playwright a un cache temporal sin Chrome.
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_ROOT / ".playwright-browsers")
 
 logger = logging.getLogger(__name__)
 
 _STATE = _ROOT / "data" / "partslink-state.json"
 _DEBUG = _ROOT / "data" / "partslink-debug.png"
+_CHASSIS_FILE = _ROOT / "data" / "peugeot-chasis.json"
 _LOCK = asyncio.Lock()
 
 _PART_NO = re.compile(
     r"\b[A-Z0-9]{2,3}\s?[A-Z0-9]{3}\s?[A-Z0-9]{3}(?:\s?[A-Z0-9])?\b",
     re.IGNORECASE,
 )
+
+
+def _short_spec(chasis: str) -> dict:
+    """Ficha de un chasis de 8 dígitos (lista del local / AMLAT)."""
+    if not _CHASSIS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(_CHASSIS_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    item = data.get(chasis.strip().upper())
+    return item if isinstance(item, dict) else {}
 
 
 class PartsLinkError(RuntimeError):
@@ -36,7 +62,12 @@ def enabled() -> bool:
     )
 
 
-def format_results(chasis: str, vehicle: str, rows: list[dict]) -> str:
+def format_results(chasis: str, vehicle: str, rows: list[dict], ask: str = "") -> str:
+    if ask:
+        return (
+            f"Con el chasis {chasis} hay más de una variante. "
+            f"¿La pieza es {ask}? Así te paso el código justo, no todos."
+        )
     if not rows:
         return (
             f"Con el chasis {chasis} no pude ubicar esa pieza en el catálogo. "
@@ -66,7 +97,13 @@ def format_results(chasis: str, vehicle: str, rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def lookup(chasis: str, query: str, screenshot_to: str | None = None) -> dict:
+async def lookup(
+    chasis: str,
+    query: str,
+    screenshot_to: str | None = None,
+    brand: str = "",
+    model: str = "",
+) -> dict:
     """Devuelve vehicle + filas de la tabla. No inventa precios."""
     if not enabled():
         raise PartsLinkError("Faltan las claves de PartsLink24 en el .env")
@@ -74,11 +111,21 @@ async def lookup(chasis: str, query: str, screenshot_to: str | None = None) -> d
         raise PartsLinkError("Hace falta chasis y pieza")
     async with _LOCK:
         return await _lookup_locked(
-            chasis.strip().upper(), query.strip(), screenshot_to
+            chasis.strip().upper(),
+            query.strip(),
+            screenshot_to,
+            brand.strip().lower(),
+            model.strip(),
         )
 
 
-async def _lookup_locked(chasis: str, query: str, screenshot_to: str | None = None) -> dict:
+async def _lookup_locked(
+    chasis: str,
+    query: str,
+    screenshot_to: str | None = None,
+    brand: str = "",
+    model: str = "",
+) -> dict:
     from playwright.async_api import async_playwright
 
     playwright = await async_playwright().start()
@@ -96,9 +143,10 @@ async def _lookup_locked(chasis: str, query: str, screenshot_to: str | None = No
         page = await context.new_page()
         page.set_default_timeout(25000)
         await _ensure_logged_in(page)
-        vehicle = await _search_chassis(page, chasis)
+        vehicle = await _search_chassis(page, chasis, brand=brand, model=model)
         rows = await _search_parts(page, query)
-        if screenshot_to:
+        rows, ask = _narrow_rows(rows, query)
+        if screenshot_to and rows and not ask:
             path = Path(screenshot_to)
             path.parent.mkdir(parents=True, exist_ok=True)
             opened = await _open_diagram(page, rows)
@@ -113,7 +161,7 @@ async def _lookup_locked(chasis: str, query: str, screenshot_to: str | None = No
                     path.unlink()
         _STATE.parent.mkdir(parents=True, exist_ok=True)
         await context.storage_state(path=str(_STATE))
-        return {"vehicle": vehicle, "rows": rows}
+        return {"vehicle": vehicle, "rows": rows, "ask": ask}
     except Exception:
         if page is not None:
             try:
@@ -184,27 +232,306 @@ async def _login_visible(page) -> bool:
 
 
 def _chassis_box(page):
-    return page.get_by_placeholder(re.compile(r"n[uú]mero de chasis|chassis", re.I))
+    return page.get_by_placeholder(
+        re.compile(
+            r"n[uú]mero de chasis|chassis|bastidor|\bvin\b|identificaci[oó]n|acceso directo|direct access",
+            re.I,
+        )
+    )
 
 
 def _parts_box(page):
-    return page.get_by_placeholder(re.compile(r"buscar piezas|search parts", re.I))
+    return page.get_by_placeholder(re.compile(r"buscar piezas|search parts", re.I)).locator(
+        "visible=true"
+    )
 
 
-async def _search_chassis(page, chasis: str) -> str:
-    box = _chassis_box(page)
+_BRAND_LABEL = {
+    "peugeot": r"peugeot",
+    "citroen": r"citro[eë]n",
+    "volkswagen": r"volkswagen|\bvw\b",
+}
+
+
+async def _dismiss_dialogs(page) -> None:
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:
+        pass
+    for pattern in (
+        r"^cerrar$",
+        r"^close$",
+        r"^ok$",
+        r"^aceptar$",
+        r"^entendido$",
+    ):
+        btn = page.get_by_role("button", name=re.compile(pattern, re.I))
+        try:
+            if await btn.count():
+                await btn.first.click(timeout=1200)
+        except Exception:
+            continue
+    for loc in (
+        page.locator('[aria-label="Close"]'),
+        page.locator('[aria-label="Cerrar"]'),
+        page.locator('[aria-label="close" i]'),
+    ):
+        try:
+            if await loc.count():
+                await loc.first.click(timeout=800)
+        except Exception:
+            continue
+
+
+async def _already_in_brand(page, brand: str) -> bool:
+    key = fold(brand)
+    if key and key in page.url.lower() and "partslink24.com/" in page.url.lower():
+        path = page.url.lower().split("partslink24.com", 1)[-1]
+        if key in path:
+            return True
+    try:
+        body = fold(await page.inner_text("body"))
+    except Exception:
+        return False
+    return "resumen de modelos" in body
+
+
+async def _wait_in_brand(page, brand: str, timeout_ms: int = 25000) -> bool:
+    elapsed = 0
+    while elapsed < timeout_ms:
+        if await _already_in_brand(page, brand):
+            await page.wait_for_timeout(600)
+            return True
+        await page.wait_for_timeout(400)
+        elapsed += 400
+    return False
+
+
+async def _wait_catalog_ready(page, timeout_ms: int = 35000) -> bool:
+    elapsed = 0
+    while elapsed < timeout_ms:
+        if await _chassis_box(page).locator("visible=true").count():
+            await page.wait_for_timeout(600)
+            return True
+        await page.wait_for_timeout(400)
+        elapsed += 400
+    return False
+
+
+async def _open_brand_catalog(page, brand: str) -> bool:
+    """En la grilla de marcas, entra al catálogo (Peugeot, etc.)."""
+    key = fold(brand)
+    title = {"peugeot": "Peugeot", "citroen": "Citroën", "volkswagen": "Volkswagen"}.get(
+        key, brand.title()
+    )
+    logo = page.locator(f'img[alt="{title}"]')
+    if await logo.count() == 0:
+        logo = page.locator(f'img[src*="/carbrands/{key}/"]')
+    try:
+        await logo.first.wait_for(state="visible", timeout=20000)
+    except Exception:
+        logger.warning("PartsLink24: no encontré el logo de %s", brand)
+        return False
+    try:
+        await logo.first.scroll_into_view_if_needed()
+        parent = logo.first.locator("xpath=ancestor::*[self::a or self::button][1]")
+        if await parent.count():
+            await parent.click(timeout=4000, force=True)
+        else:
+            await logo.first.click(timeout=4000, force=True)
+    except Exception:
+        logger.warning("PartsLink24: no pude cliclear %s", brand)
+        return False
+    logger.info("PartsLink24: clic catálogo %s", brand)
+    try:
+        await page.wait_for_url(re.compile(key, re.I), timeout=15000)
+    except Exception:
+        await page.wait_for_timeout(1200)
+    ready = await _wait_in_brand(page, brand, timeout_ms=25000)
+    logger.info("PartsLink24 URL %s ready=%s", page.url, ready)
+    return ready
+
+
+async def _submit_chassis(page, chasis: str) -> bool:
+    if not await _wait_catalog_ready(page, timeout_ms=8000):
+        return False
+    box = _chassis_box(page).locator("visible=true")
     if await box.count() == 0:
-        raise PartsLinkError("No encontré el campo de chasis")
+        labeled = page.get_by_label(re.compile(r"acceso directo", re.I))
+        if await labeled.count() == 0:
+            return False
+        box = labeled
     await box.first.fill("")
     await box.first.fill(chasis)
     await box.first.press("Enter")
     try:
-        await _parts_box(page).first.wait_for(state="visible", timeout=30000)
+        await _parts_box(page).first.wait_for(state="visible", timeout=8000)
+        return True
     except Exception:
         await page.wait_for_timeout(2500)
-    if await _parts_box(page).count() == 0:
-        raise PartsLinkError("El chasis no abrió el catálogo del auto")
-    return await _vehicle_name(page)
+    try:
+        body = fold(await page.inner_text("body"))
+    except Exception:
+        body = ""
+    if any(
+        marker in body
+        for marker in (
+            "no pudo ser asignado",
+            "catalogo correcto",
+            "no se han encontrado entradas",
+            "intentalo de nuevo",
+        )
+    ):
+        return False
+    if await page.get_by_text(re.compile(r"grupo principal|despiece|l[aá]mina", re.I)).count():
+        return True
+    return await _parts_box(page).count() > 0
+
+
+async def _click_visible_text(page, *candidates: str) -> bool:
+    await _dismiss_dialogs(page)
+    for raw in candidates:
+        text = (raw or "").strip()
+        if not text:
+            continue
+        loc = page.get_by_text(text, exact=True)
+        if await loc.count() == 0:
+            loc = page.get_by_text(re.compile(re.escape(text), re.I))
+        n = await loc.count()
+        if not n:
+            continue
+        try:
+            await loc.nth(n - 1).click(force=True, timeout=8000)
+            await page.wait_for_timeout(1100)
+            logger.info("PartsLink24 clic %r", text)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _body_labels(carroceria: str) -> list[str]:
+    blob = (carroceria or "").upper()
+    labels = [carroceria] if carroceria else []
+    mapping = {
+        "BERLINA 5 PUERTAS": ("BERLINA DE 5 PUERTAS", "BERLINA 5 PUERTAS"),
+        "BERLINA 4 PUERTAS": ("BERLINA DE 4 PUERTAS", "BERLINA 4 PUERTAS"),
+        "BERLINA 3 PUERTAS": ("BERLINA DE 3 PUERTAS", "BERLINA 3PTAS", "BERLINA 3 PUERTAS"),
+    }
+    for key, alts in mapping.items():
+        if key in blob:
+            labels.extend(alts)
+    return list(dict.fromkeys(labels))
+
+
+async def _drill_known_vehicle(page, spec: dict) -> bool:
+    """Baja por modelo → AMLAT → carrocería → motor. No usa Acceso directo."""
+    model = str(spec.get("modelo") or "")
+    if not model:
+        return False
+    logger.info(
+        "PartsLink24 identifica %s %s amlat=%s %s %s",
+        model,
+        spec.get("carroceria"),
+        spec.get("amlat"),
+        spec.get("motor_code") or spec.get("motor"),
+        spec.get("caja"),
+    )
+    await _dismiss_dialogs(page)
+    try:
+        await page.get_by_text("Resumen de modelos", exact=False).first.wait_for(timeout=15000)
+        await page.get_by_text(model, exact=True).first.wait_for(state="visible", timeout=15000)
+    except Exception:
+        logger.warning("PartsLink24: no vi el modelo %s", model)
+        return False
+    await page.get_by_text(model, exact=True).first.click(force=True)
+    await page.wait_for_timeout(1200)
+    if spec.get("amlat"):
+        if not await _click_visible_text(
+            page,
+            f"{model} / HOGGAR (AMLAT)",
+            f"{model} / HOGGAR",
+            "HOGGAR (AMLAT)",
+        ):
+            logger.warning("PartsLink24: no vi variante AMLAT del %s", model)
+            return False
+    else:
+        variants = page.get_by_text(model, exact=True)
+        if await variants.count() >= 2:
+            await variants.nth(1).click(force=True)
+            await page.wait_for_timeout(1100)
+    if not await _click_visible_text(page, *_body_labels(str(spec.get("carroceria") or ""))):
+        logger.warning("PartsLink24: no vi carrocería %s", spec.get("carroceria"))
+        return False
+    motor_ok = False
+    code = str(spec.get("motor_code") or "").strip()
+    if code and await _click_visible_text(page, code):
+        motor_ok = True
+    if not motor_ok:
+        motor = str(spec.get("motor") or "").strip()
+        if motor:
+            motor_ok = await _click_visible_text(page, motor, motor.replace("  ", " "))
+    if not motor_ok:
+        logger.warning("PartsLink24: no vi el motor %s", code or spec.get("motor"))
+        return False
+    caja = str(spec.get("caja") or "").strip()
+    if caja:
+        await _click_visible_text(page, caja, caja.replace(" ", ""), "CVM 5", "CVM5", "CVM 6", "CVM6")
+    await page.wait_for_timeout(1500)
+    try:
+        await _parts_box(page).first.wait_for(state="visible", timeout=12000)
+    except Exception:
+        await page.wait_for_timeout(800)
+    return True
+
+
+async def _search_chassis(page, chasis: str, brand: str = "", model: str = "") -> str:
+    short = 8 <= len(chasis) < 17
+    brands: list[str] = []
+    if brand:
+        brands.append(brand)
+    elif short:
+        brands.append("peugeot")
+    if short:
+        for name in brands:
+            await _dismiss_dialogs(page)
+            if not await _already_in_brand(page, name):
+                await _open_brand_catalog(page, name)
+            await _dismiss_dialogs(page)
+            if not await _already_in_brand(page, name):
+                logger.warning("PartsLink24: no entré al catálogo %s", name)
+                continue
+            spec = _short_spec(chasis)
+            if spec:
+                if await _drill_known_vehicle(page, spec):
+                    label = " ".join(
+                        part
+                        for part in (
+                            spec.get("modelo"),
+                            spec.get("anio"),
+                            "AMLAT" if spec.get("amlat") else "",
+                            spec.get("carroceria"),
+                            spec.get("motor"),
+                        )
+                        if part
+                    )
+                    return label.strip() or chasis
+                logger.warning("PartsLink24: no pude armar el auto de la ficha %s", chasis)
+            if await _submit_chassis(page, chasis):
+                return await _vehicle_name(page)
+            logger.warning("PartsLink24: %s no abrió con catálogo %s", chasis, name)
+        raise PartsLinkError(
+            f"El chasis {chasis} no se asignó en el catálogo {brands[0] if brands else 'de la marca'}"
+        )
+    if await _submit_chassis(page, chasis):
+        return await _vehicle_name(page)
+    if brand:
+        await _dismiss_dialogs(page)
+        await _open_brand_catalog(page, brand)
+        await _dismiss_dialogs(page)
+        if await _submit_chassis(page, chasis):
+            return await _vehicle_name(page)
+    raise PartsLinkError("El chasis no abrió el catálogo del auto")
 
 
 async def _vehicle_name(page) -> str:
@@ -219,30 +546,40 @@ async def _vehicle_name(page) -> str:
     return title.strip()[:80]
 
 
-async def _search_parts(page, query: str) -> list[dict]:
+async def _run_part_search(page, term: str) -> list[dict]:
     box = _parts_box(page)
     if await box.count() == 0:
         raise PartsLinkError("No encontré 'Buscar piezas' después del chasis")
-    logger.info("PartsLink24 busca pieza %r", query)
     await box.first.click()
     await box.first.fill("")
-    await box.first.fill(query)
+    await box.first.fill(term)
     await page.wait_for_timeout(800)
     await box.first.press("Enter")
     await page.wait_for_timeout(2500)
     rows = await _read_search_list(page)
     if not rows:
         rows = await _read_rows(page)
-    scored = _rank_rows(rows, query)
-    if scored:
-        return scored
-    suggestion = page.get_by_text(re.compile(query.split()[0], re.I)).locator("visible=true")
+    if rows:
+        return rows
+    hint = term.split()[0] if term.split() else term
+    suggestion = page.get_by_text(re.compile(re.escape(hint), re.I)).locator("visible=true")
     if await suggestion.count() > 1:
         await suggestion.nth(1).click(force=True)
         await page.wait_for_timeout(2500)
-        rows = await _read_search_list(page) or await _read_rows(page)
+        return await _read_search_list(page) or await _read_rows(page)
+    return []
+
+
+async def _search_parts(page, query: str) -> list[dict]:
+    last: list[dict] = []
+    for term in search_queries(query)[:2]:
+        logger.info("PartsLink24 busca pieza %r (pedido %r)", term, query)
+        rows = await _run_part_search(page, term)
         scored = _rank_rows(rows, query)
-    return scored
+        if scored:
+            return scored
+        last = scored
+    return last
 
 
 async def _click_first(page, locator) -> bool:
@@ -342,12 +679,17 @@ async def _read_search_list(page) -> list[dict]:
         lamina_hit = re.search(r"L[aá]mina\s*(\d{3}-\d{3})", rest, re.I)
         if lamina_hit:
             lamina = lamina_hit.group(1)
+        gp = ""
+        gp_hit = re.search(r"\bGP\s*(\d+)", rest, re.I)
+        if gp_hit:
+            gp = gp_hit.group(1)
         items.append(
             {
                 "code": code,
                 "name": name,
                 "note": "",
                 "lamina": lamina,
+                "gp": gp,
                 "raw": f"{code} {name}",
             }
         )
@@ -419,22 +761,231 @@ def _best_name(cells: list[str], code: str) -> str:
     return ""
 
 
+_PUMP_EXCLUDE = {
+    "agua": (
+        "combustible",
+        "gasolina",
+        "gasoil",
+        "vacio",
+        "aceite",
+        "inyector",
+        "deflector",
+        "lavafaros",
+        "limpiaparabrisas",
+        "direccion",
+        "hidraulic",
+        "servo",
+    ),
+    "combustible": (
+        "refriger",
+        "aceite",
+        "vacio",
+        "inyector",
+        "deflector",
+        "direccion",
+        "hidraulic",
+    ),
+    "aceite": (
+        "refriger",
+        "combustible",
+        "vacio",
+        "inyector",
+        "deflector",
+        "agua",
+        "direccion",
+    ),
+    "direccion": (
+        "refriger",
+        "combustible",
+        "aceite",
+        "vacio",
+        "inyector",
+        "deflector",
+        "agua",
+    ),
+    "vacio": (
+        "refriger",
+        "combustible",
+        "aceite",
+        "inyector",
+        "deflector",
+        "agua",
+        "direccion",
+    ),
+    "inyector": (
+        "refriger",
+        "combustible",
+        "aceite",
+        "vacio",
+        "deflector",
+        "agua",
+        "direccion",
+    ),
+}
+_PUMP_REQUIRE = {
+    "agua": ("refriger", "agua"),
+    "combustible": ("combustible", "gasolina", "gasoil"),
+    "aceite": ("aceite",),
+    "direccion": ("direccion", "hidraulic", "servo"),
+    "vacio": ("vacio",),
+    "inyector": ("inyector",),
+}
+
+
+def _item_blob(item: dict) -> str:
+    return fold(
+        " ".join(str(item.get(key) or "") for key in ("code", "name", "note", "raw"))
+    )
+
+
+def _rank_pump_rows(rows: list[dict], kind: str) -> list[dict]:
+    exclude = _PUMP_EXCLUDE.get(kind, ())
+    require = _PUMP_REQUIRE.get(kind, ())
+    scored: list[tuple[int, dict]] = []
+    for item in rows:
+        blob = _item_blob(item)
+        if any(word in blob for word in exclude):
+            continue
+        if kind == "agua" and "deflector" in blob:
+            continue
+        marks = sum(1 for word in require if word in blob)
+        has_pump = "bomba" in blob or "pump" in blob
+        if kind == "agua":
+            if not marks and not has_pump:
+                continue
+            score = marks * 4 + (2 if has_pump else 0)
+            scored.append((score, item))
+            continue
+        if not marks:
+            continue
+        scored.append((marks + (1 if has_pump else 0), item))
+    if kind == "agua":
+        strong = [(score, item) for score, item in scored if score >= 4]
+        scored = strong or [(score, item) for score, item in scored if score > 0]
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in scored][:8]
+
+
 def _rank_rows(rows: list[dict], query: str) -> list[dict]:
+    kind = pump_kind_wanted(query)
+    if kind:
+        return _rank_pump_rows(rows, kind)
     tokens = [token for token in fold(query).split() if len(token) > 2]
     if not tokens:
         return []
-    stems = _stems(tokens)
     scored: list[tuple[int, dict]] = []
     for item in rows:
-        name = fold(str(item.get("name") or ""))
-        blob = fold(" ".join(str(v) for v in (item.get("code"), item.get("name"), item.get("note"))))
-        if not any(stem in name or stem in blob for stem in stems):
+        blob = _item_blob(item)
+        hits = sum(
+            1
+            for token in tokens
+            if token in blob or any(stem in blob for stem in _stems([token]))
+        )
+        if not hits:
             continue
-        score = sum(1 for token in tokens if token in blob or any(s in blob for s in _stems([token])))
-        if score:
-            scored.append((score, item))
+        if len(tokens) >= 2 and hits < len(tokens):
+            continue
+        scored.append((hits, item))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in scored][:8]
+
+
+_ACCESSORY = (
+    "tope",
+    "tensor",
+    "reten",
+    "junta",
+    "tornillo",
+    "tuerca",
+    "fuelle",
+    "soporte",
+    "elemento tensor",
+)
+
+
+def _narrow_rows(rows: list[dict], query: str) -> tuple[list[dict], str]:
+    """Saca accesorios y pide eje/lado si hay varias familias (ej. todos los amortiguadores)."""
+    wanted = fold(query)
+    cleaned = []
+    for item in rows:
+        name = fold(str(item.get("name") or ""))
+        if any(word in name for word in _ACCESSORY) and not any(
+            word in wanted for word in _ACCESSORY
+        ):
+            continue
+        cleaned.append(item)
+    cleaned = _dedupe_codes(cleaned)
+
+    axle = axle_wanted(query)
+    if axle:
+        filtered = [item for item in cleaned if _axle_of(item) in {"", axle} or _axle_of(item) == axle]
+        strict = [item for item in cleaned if _axle_of(item) == axle]
+        cleaned = strict or filtered
+    elif needs_axle_clarify(query):
+        axles = { _axle_of(item) for item in cleaned if _axle_of(item) }
+        if len(axles) > 1:
+            return [], "delantera o trasera"
+
+    side = side_wanted(query)
+    if side:
+        strict = [item for item in cleaned if _side_of(item) == side]
+        if strict:
+            cleaned = strict
+    elif needs_side_clarify(query):
+        sides = { _side_of(item) for item in cleaned if _side_of(item) }
+        if len(sides) > 1:
+            return [], "izquierda o derecha"
+
+    variant = _pump_variant_ask(cleaned, query)
+    if variant:
+        return [], variant
+
+    return cleaned[:5], ""
+
+
+def _pump_variant_ask(rows: list[dict], query: str) -> str:
+    """Si hay bomba de agua completa y también solo el impulsor, preguntar."""
+    if pump_kind_wanted(query) != "agua" or len(rows) < 2:
+        return ""
+    blobs = [fold(str(item.get("name") or "")) for item in rows]
+    housing = any("carcasa" in blob or "completa" in blob for blob in blobs)
+    impeller = any("impulsor" in blob or "rodete" in blob for blob in blobs)
+    if housing and impeller:
+        return "completa con carcasa o solo el impulsor"
+    return ""
+
+
+def _dedupe_codes(rows: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in rows:
+        code = str(item.get("code") or "").strip()
+        if code and code in seen:
+            continue
+        if code:
+            seen.add(code)
+        out.append(item)
+    return out
+
+
+def _axle_of(item: dict) -> str:
+    gp = str(item.get("gp") or "")
+    lamina = str(item.get("lamina") or "")
+    blob = fold(" ".join(str(item.get(k) or "") for k in ("name", "raw", "note")))
+    if gp == "4" or lamina.startswith("41") or "delanter" in blob:
+        return "delantero"
+    if gp == "5" or lamina.startswith("51") or "traser" in blob:
+        return "trasero"
+    return ""
+
+
+def _side_of(item: dict) -> str:
+    blob = fold(str(item.get("name") or ""))
+    if "izquierd" in blob:
+        return "izquierdo"
+    if "derech" in blob:
+        return "derecho"
+    return ""
 
 
 def _stems(tokens: list[str]) -> set[str]:
@@ -452,12 +1003,27 @@ def _stems(tokens: list[str]) -> set[str]:
 
 
 async def lookup_reply(
-    chasis: str, query: str, screenshot_to: str | None = None
+    chasis: str,
+    query: str,
+    screenshot_to: str | None = None,
+    brand: str = "",
+    model: str = "",
 ) -> str:
     try:
-        data = await lookup(chasis, query, screenshot_to=screenshot_to)
+        data = await lookup(
+            chasis, query, screenshot_to=screenshot_to, brand=brand, model=model
+        )
     except PartsLinkError as exc:
         logger.warning("PartsLink24: %s", exc)
+        detail = str(exc)
+        if "no se asignó" in detail or "no abrió el catálogo" in detail:
+            where = f" en {brand}" if brand else ""
+            return (
+                f"Entré al catálogo Peugeot de PartsLink y {chasis} no aparece "
+                "(Acceso directo no encontró el auto). "
+                "Ese número de 8 no alcanza: pasame los 17 del parabrisas o de la cédula. "
+                "Si no, lo mira un vendedor."
+            )
         return (
             f"No pude consultar el catálogo ahora. "
             f"Dejo el chasis {chasis} para que lo mire un vendedor."
@@ -468,7 +1034,12 @@ async def lookup_reply(
             f"No pude consultar el catálogo ahora. "
             f"Dejo el chasis {chasis} para que lo mire un vendedor."
         )
-    return format_results(chasis, str(data.get("vehicle") or ""), list(data.get("rows") or []))
+    return format_results(
+        chasis,
+        str(data.get("vehicle") or ""),
+        list(data.get("rows") or []),
+        ask=str(data.get("ask") or ""),
+    )
 
 
 if __name__ == "__main__":
@@ -477,6 +1048,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Probar PartsLink24 sin WhatsApp")
     parser.add_argument("--chasis", required=True)
     parser.add_argument("--q", required=True)
+    parser.add_argument("--brand", default="peugeot")
+    parser.add_argument("--model", default="")
     parser.add_argument("--shot", help="Guardar captura del despiece en este path")
     args = parser.parse_args()
-    print(asyncio.run(lookup_reply(args.chasis, args.q, screenshot_to=args.shot)))
+    print(
+        asyncio.run(
+            lookup_reply(
+                args.chasis,
+                args.q,
+                screenshot_to=args.shot,
+                brand=args.brand,
+                model=args.model,
+            )
+        )
+    )

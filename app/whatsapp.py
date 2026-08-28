@@ -3,6 +3,7 @@ import logging
 import httpx
 
 from app.config import settings
+from app.sales import SAFE_FALLBACK, is_sendable
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ def _argentine_alternates(wa_id: str) -> list[str]:
 
 
 async def send_text(to: str, body: str, user_id: str = "") -> bool:
+    if not is_sendable(body):
+        logger.error("Bloqueé mensaje interno/cortado: %s", (body or "")[:160])
+        body = SAFE_FALLBACK
     url = f"{GRAPH_URL}/{settings.whatsapp_phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {settings.whatsapp_token}",
@@ -129,3 +133,26 @@ async def mark_as_read(message_id: str) -> None:
         response = await client.post(url, json=payload, headers=headers)
         if response.status_code >= 400:
             logger.warning("Could not mark as read: %s", response.text)
+
+
+async def notify_operator(
+    reason: str,
+    sender: str,
+    text: str,
+    chasis: str = "",
+    pieza: str = "",
+) -> None:
+    dest = (settings.operator_whatsapp or "").strip()
+    if not dest:
+        logger.warning("Consulta difícil sin OPERATOR_WHATSAPP (%s)", reason)
+        return
+    if dest == sender or dest in recipient_candidates(sender):
+        return
+    body = (
+        f"Consulta difícil: {reason}\n"
+        f"Cliente: {sender}\n"
+        f"Chasis: {chasis or '-'}\n"
+        f"Pieza: {pieza or '-'}\n"
+        f"Dijo: {text[:400]}"
+    )
+    await send_text(dest, body)

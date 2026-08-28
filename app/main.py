@@ -7,7 +7,7 @@ from collections import OrderedDict
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 
-from app.ai import reply_to
+from app.ai import history_for_ai, reply_to
 from app.catalog import (
     fallback_quote,
     find_products,
@@ -23,19 +23,30 @@ from app.sales import (
     ASK_CHASSIS_REPLY,
     GOT_CHASSIS_ONLY,
     RESET_REPLY,
+    NEED_DETAILS,
     chassis_context,
     extract_chassis,
     handoff_reply,
     last_piece_query,
     local_quote_ok,
     piece_query,
+    brand_hint,
+    model_hint,
+    is_position_only,
+    is_clarify_only,
+    merge_piece,
+    piece_clarify_ask,
+    fold,
     wants_human,
     wants_photo,
     wants_reset,
+    is_sendable,
+    SAFE_FALLBACK,
 )
-from app.whatsapp import mark_as_read, send_image, send_text
+from app.whatsapp import mark_as_read, notify_operator, send_image, send_text
 from app.partslink import enabled as partslink_enabled
 from app.partslink import lookup_reply
+from app.learn import remember_reply, similar_replies
 
 _AI_FAILS = "Tuve un problema para generar la respuesta."
 
@@ -73,6 +84,18 @@ def _valid_signature(raw_body: bytes, header: str | None) -> bool:
     return hmac.compare_digest(expected, received)
 
 
+async def _gemini_or_fallback(text: str, extra: str, fallback: str, sender: str) -> str:
+    answer = await reply_to(
+        text,
+        history=history_for_ai(history_for(sender)),
+        extra_context=extra,
+    )
+    if answer.startswith(_AI_FAILS) or not is_sendable(answer):
+        logger.warning("Gemini no sirvió; uso plantilla")
+        return fallback
+    return answer
+
+
 @app.get("/health")
 async def health():
     return {"ok": True, "ai_mode": settings.ai_mode}
@@ -88,6 +111,7 @@ async def consulta(q: str = Query(default="")):
 async def partslink_consulta(
     chasis: str = Query(default=""),
     q: str = Query(default=""),
+    brand: str = Query(default="peugeot"),
     token: str = Query(default=""),
 ):
     """Prueba local: /partslink?chasis=...&q=amortiguadores&token=iahaf-verify-cambiar"""
@@ -99,7 +123,7 @@ async def partslink_consulta(
         raise HTTPException(status_code=400, detail="Faltan chasis y q")
     from app.partslink import lookup
 
-    return await lookup(chasis, q)
+    return await lookup(chasis, q, brand=brand)
 
 
 @app.get("/webhook")
@@ -187,52 +211,86 @@ async def _handle_message(message: dict) -> None:
     remember_match(text, matches)
     pieza = last_piece_query(past_msgs, text, chasis)
     stored = str(profile_for(sender).get("pieza") or "")
+    extra = piece_query(text, chasis)
     if wants_photo(text):
-        extra = piece_query(text, chasis)
         pieza = extra or stored or last_piece_query(past_msgs, "", chasis)
+    elif extra and stored and (is_position_only(extra) or is_clarify_only(extra)):
+        pieza = merge_piece(stored, extra)
     if pieza:
         logger.info("Pieza a buscar: %s", pieza)
 
+    marca = brand_hint(text, *past_msgs, str(profile_for(sender).get("marca") or ""))
+    if marca:
+        set_profile(sender, marca=marca)
+        logger.info("Marca de %s: %s", sender, marca)
+    marca = marca or str(profile_for(sender).get("marca") or "")
+    if chasis and len(chasis) < 17 and not marca:
+        marca = "peugeot"
+        logger.info("Chasis corto: pruebo catálogo Peugeot")
+    modelo = model_hint(text, *past_msgs, str(profile_for(sender).get("modelo") or ""))
+    if modelo:
+        set_profile(sender, modelo=modelo)
+        logger.info("Modelo de %s: %s", sender, modelo)
+    modelo = modelo or str(profile_for(sender).get("modelo") or "")
+
     shot = _ROOT / "data" / "shots" / f"{sender}.png"
+    answer = ""
 
     if wants_photo(text):
         if chasis and pieza and partslink_enabled():
             await send_text(sender, "Dame un segundo, abro el despiece.", user_id)
-            answer = await lookup_reply(chasis, pieza, screenshot_to=str(shot))
+            answer = await lookup_reply(
+                chasis,
+                pieza,
+                screenshot_to=str(shot),
+                brand=marca,
+                model=modelo,
+            )
             if shot.exists():
                 await send_image(sender, shot, "Despiece del catálogo.", user_id)
-            else:
-                answer = "Ubicé la pieza pero no pude sacar la foto del despiece."
+            if not answer:
+                answer = "Ahí te mandé el despiece."
         else:
             answer = "Primero ubicamos la pieza (con el chasis). Después pedime la foto."
     elif wants_human(text):
         answer = handoff_reply(chasis)
-    elif local_quote_ok(matches):
+    elif local_quote_ok(matches, text):
         extra = (
             search_products(lookup)
             + "\n\n"
             + chassis_context(chasis)
             + "\n\n"
             + search_manuals(lookup)
+            + "\n\n"
+            + similar_replies(text, "quote")
         )
-        answer = await reply_to(text, history=history_for(sender), extra_context=extra)
-        if answer.startswith(_AI_FAILS):
-            quote = fallback_quote(lookup)
-            if quote:
-                logger.warning("Gemini falló; cotizo desde catálogo")
-                answer = quote
+        answer = await _gemini_or_fallback(
+            text,
+            extra,
+            fallback_quote(lookup) or ASK_CHASSIS_REPLY,
+            sender,
+        )
+        if is_sendable(answer) and not answer.startswith(_AI_FAILS):
+            remember_reply("quote", text, answer)
     elif pieza and not chasis:
         answer = ASK_CHASSIS_REPLY
     elif chasis and not pieza:
         answer = GOT_CHASSIS_ONLY
     elif chasis and pieza and partslink_enabled():
-        await send_text(
-            sender,
-            "Dame un segundo, busco esa pieza por el chasis en el catálogo.",
-            user_id,
-        )
-        answer = await lookup_reply(chasis, pieza)
-        set_profile(sender, chasis=chasis, pieza=pieza)
+        pending = piece_clarify_ask(pieza)
+        set_profile(sender, chasis=chasis, pieza=pieza, marca=marca, modelo=modelo)
+        if pending:
+            answer = (
+                f"En ese auto hay varias. ¿La pieza es {pending}? "
+                "Así te busco el código justo, no una lista mezclada."
+            )
+        else:
+            await send_text(
+                sender,
+                "Dame un segundo, busco esa pieza por el chasis en el catálogo.",
+                user_id,
+            )
+            answer = await lookup_reply(chasis, pieza, brand=marca, model=modelo)
     elif matches and is_complex(matches[0]) and chasis:
         answer = handoff_reply(chasis)
     else:
@@ -242,14 +300,38 @@ async def _handle_message(message: dict) -> None:
             + chassis_context(chasis)
             + "\n\n"
             + search_manuals(lookup)
+            + "\n\n"
+            + similar_replies(text, "quote")
         )
-        answer = await reply_to(text, history=history_for(sender), extra_context=extra)
-        if answer.startswith(_AI_FAILS):
-            quote = fallback_quote(lookup)
-            if quote:
-                logger.warning("Gemini falló; cotizo desde catálogo")
-                answer = quote
+        answer = await _gemini_or_fallback(
+            text,
+            extra,
+            fallback_quote(lookup) or NEED_DETAILS,
+            sender,
+        )
+        if is_sendable(answer) and not answer.startswith(_AI_FAILS):
+            remember_reply("quote", text, answer)
+
+    if not is_sendable(answer) or str(answer).startswith(_AI_FAILS):
+        logger.warning("Respuesta inválida, uso plantilla: %s", (answer or "")[:160])
+        answer = SAFE_FALLBACK
 
     remember(sender, "user", text)
     remember(sender, "assistant", answer)
+    hard = fold(answer)
+    if wants_human(text) or any(
+        marker in hard
+        for marker in (
+            "te dejo con un vendedor",
+            "no pude ubicar",
+            "no pude consultar el catalogo",
+        )
+    ):
+        await notify_operator(
+            "deriva a vendedor",
+            sender,
+            text,
+            chasis=chasis,
+            pieza=pieza,
+        )
     await send_text(sender, answer, user_id)

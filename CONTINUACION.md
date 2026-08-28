@@ -1,4 +1,4 @@
-# Continuación de la charla (26 ago 2026)
+# Continuación de la charla (28 ago 2026)
 
 Contexto para seguir IAHAF en otra PC o con otra sesión de Cursor. **No incluye tokens.** El repo es público: los secretos viven solo en `.env` local (copialo a mano, no está en GitHub).
 
@@ -33,6 +33,11 @@ Número de prueba `+1 555-203-0245`: solo habla con hasta **5** celulares autori
 - Si pide vendedor / reclamo / garantía, deriva sin pasar por la IA.
 - Dockerfile listo para hosting (Railway) con URL fija. Hasta que no esté online, el túnel (`localhost.run`) cambia y hay que actualizar el webhook.
 - PartsLink24 (Playwright): con chasis busca la pieza en el catálogo OEM. La foto es la **lámina del despiece**, no la lista de resultados. "nuevo pedido" reinicia el chat.
+- Pieza ambigua: pregunta el tipo (bomba, filtro) o eje/lado. "bomba de agua" busca refrigerante y descarta combustible/aceite/inyector/deflector.
+- VW VIN de 17 abre el auto. Peugeot last-8: `data/peugeot-chasis.json` y entra por logo Peugeot (Acceso directo no indexa esos 8).
+- Pedido chasis / listas OEM: plantillas (Gemini no; cortaba y filtraba el prompt).
+- Túnel: `arrancar.ps1` o `scripts/keep_tunnel.py`. uvicorn **sin** `--reload`.
+- Estado: 28 ago 2026 el usuario prueba WhatsApp (bomba de agua Bora TDI, chasis `3VWSP49MX6M031230`).
 
 ## Meta (ya armado, no repetir)
 
@@ -67,7 +72,7 @@ En Meta pegar siempre:
 - Servidor local: `http://127.0.0.1:8000`
 - Token: `iahaf-verify-cambiar`
 
-Ahora (vence): `https://69bad526627c87.lhr.life/webhook`
+Ahora (28 ago 2026, vence si se cae): `https://60809fc999d428.lhr.life/webhook`
 
 El `.env` se copia de la otra PC (nunca de GitHub). `AI_MODE=openai`, modelo `gemini-3.6-flash`.
 
