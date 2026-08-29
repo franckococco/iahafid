@@ -32,6 +32,11 @@ from app.sales import (
     piece_query,
     brand_hint,
     model_hint,
+    motor_hint,
+    peugeot_drill_spec,
+    ask_motor_reply,
+    oem_family,
+    is_motor_clarify,
     is_position_only,
     is_clarify_only,
     merge_piece,
@@ -45,7 +50,9 @@ from app.sales import (
 )
 from app.whatsapp import mark_as_read, notify_operator, send_image, send_text
 from app.partslink import enabled as partslink_enabled
-from app.partslink import lookup_reply
+from app.partslink import short_vehicle_spec
+from app.oem import listed_unique_part, lookup_reply
+from app import expoyer, infobal, servicebox
 from app.learn import remember_reply, similar_replies
 
 _AI_FAILS = "Tuve un problema para generar la respuesta."
@@ -67,6 +74,41 @@ def _already_seen(message_id: str) -> bool:
     while len(_seen_ids) > _MAX_SEEN:
         _seen_ids.popitem(last=False)
     return False
+
+
+def _can_lookup(marca: str, modelo: str, chasis: str) -> bool:
+    if oem_family(marca, modelo, chasis) == "vw":
+        return partslink_enabled()
+    return infobal.enabled() or servicebox.enabled() or expoyer.enabled()
+
+
+def _forget_shot(shot) -> None:
+    """No reenviar un despiece de otra consulta si esta búsqueda falló."""
+    try:
+        shot.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _needs_motor_ask(chasis: str, marca: str, modelo: str, hints: dict) -> bool:
+    if oem_family(marca, modelo, chasis) == "psa":
+        return False
+    if not chasis or len(chasis) >= 17:
+        return False
+    if marca and marca not in {"peugeot", "citroen"}:
+        return False
+    if short_vehicle_spec(chasis):
+        return False
+    if hints.get("litros") and hints.get("fuel"):
+        return False
+    return True
+
+
+def _vehicle_spec(chasis: str, modelo: str, hints: dict) -> dict | None:
+    known = short_vehicle_spec(chasis)
+    if known:
+        return known
+    return peugeot_drill_spec(modelo, hints)
 
 
 def _valid_signature(raw_body: bytes, header: str | None) -> bool:
@@ -214,6 +256,8 @@ async def _handle_message(message: dict) -> None:
     extra = piece_query(text, chasis)
     if wants_photo(text):
         pieza = extra or stored or last_piece_query(past_msgs, "", chasis)
+    elif extra and is_motor_clarify(extra):
+        pieza = stored or last_piece_query(past_msgs, "", chasis)
     elif extra and stored and (is_position_only(extra) or is_clarify_only(extra)):
         pieza = merge_piece(stored, extra)
     if pieza:
@@ -233,25 +277,55 @@ async def _handle_message(message: dict) -> None:
         logger.info("Modelo de %s: %s", sender, modelo)
     modelo = modelo or str(profile_for(sender).get("modelo") or "")
 
+    profile = profile_for(sender)
+    hints = motor_hint(
+        text,
+        *past_msgs,
+        str(profile.get("litros") or ""),
+        str(profile.get("fuel") or ""),
+    )
+    if hints.get("litros"):
+        set_profile(sender, litros=str(hints["litros"]))
+    if hints.get("fuel"):
+        set_profile(sender, fuel=str(hints["fuel"]))
+    spec = _vehicle_spec(chasis, modelo, hints)
+
     shot = _ROOT / "data" / "shots" / f"{sender}.png"
     answer = ""
 
     if wants_photo(text):
-        if chasis and pieza and partslink_enabled():
-            await send_text(sender, "Dame un segundo, abro el despiece.", user_id)
-            answer = await lookup_reply(
-                chasis,
-                pieza,
-                screenshot_to=str(shot),
-                brand=marca,
-                model=modelo,
-            )
-            if shot.exists():
-                await send_image(sender, shot, "Despiece del catálogo.", user_id)
-            if not answer:
-                answer = "Ahí te mandé el despiece."
+        if chasis and pieza and _can_lookup(marca, modelo, chasis):
+            if _needs_motor_ask(chasis, marca, modelo, hints):
+                answer = ask_motor_reply(modelo, hints)
+            else:
+                _forget_shot(shot)
+                await send_text(
+                    sender,
+                    "Dame un segundo, estoy en el catálogo.",
+                    user_id,
+                    check=False,
+                )
+                answer = await lookup_reply(
+                    chasis,
+                    pieza,
+                    screenshot_to=str(shot) if oem_family(marca, modelo, chasis) == "vw" else None,
+                    brand=marca,
+                    model=modelo,
+                    spec=spec,
+                )
+                if listed_unique_part(answer) and shot.exists():
+                    await send_image(
+                        sender,
+                        shot,
+                        "En el despiece está marcada con el círculo.",
+                        user_id,
+                    )
+                else:
+                    _forget_shot(shot)
+                if not answer:
+                    answer = "Ahí te mandé el despiece."
         else:
-            answer = "Primero ubicamos la pieza (con el chasis). Después pedime la foto."
+            answer = "Primero el chasis, después te marco la foto."
     elif wants_human(text):
         answer = handoff_reply(chasis)
     elif local_quote_ok(matches, text):
@@ -276,21 +350,40 @@ async def _handle_message(message: dict) -> None:
         answer = ASK_CHASSIS_REPLY
     elif chasis and not pieza:
         answer = GOT_CHASSIS_ONLY
-    elif chasis and pieza and partslink_enabled():
+    elif chasis and pieza and _can_lookup(marca, modelo, chasis):
         pending = piece_clarify_ask(pieza)
         set_profile(sender, chasis=chasis, pieza=pieza, marca=marca, modelo=modelo)
         if pending:
-            answer = (
-                f"En ese auto hay varias. ¿La pieza es {pending}? "
-                "Así te busco el código justo, no una lista mezclada."
-            )
+            answer = f"¿La pieza es {pending}?"
+        elif _needs_motor_ask(chasis, marca, modelo, hints):
+            answer = ask_motor_reply(modelo, hints)
         else:
+            _forget_shot(shot)
             await send_text(
                 sender,
-                "Dame un segundo, busco esa pieza por el chasis en el catálogo.",
+                "Dame un segundo, estoy en el catálogo.",
                 user_id,
+                check=False,
             )
-            answer = await lookup_reply(chasis, pieza, brand=marca, model=modelo)
+            shot_to = str(shot) if oem_family(marca, modelo, chasis) == "vw" else None
+            listed = await lookup_reply(
+                chasis,
+                pieza,
+                screenshot_to=shot_to,
+                brand=marca,
+                model=modelo,
+                spec=spec,
+            )
+            if listed_unique_part(listed) and shot.exists():
+                await send_image(
+                    sender,
+                    shot,
+                    "En el despiece está marcada con el círculo.",
+                    user_id,
+                )
+            else:
+                _forget_shot(shot)
+            answer = listed
     elif matches and is_complex(matches[0]) and chasis:
         answer = handoff_reply(chasis)
     else:

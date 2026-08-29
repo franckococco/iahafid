@@ -89,7 +89,9 @@ def _system_prompt(extra_context: str) -> str:
         return settings.ai_system_prompt
     return (
         f"{settings.ai_system_prompt}\n\n"
-        "Información interna. Los HECHOS mandan; el tono puede ser más de mostrador:\n"
+        "Información interna. Los HECHOS mandan (códigos, precios, stock, chasis). "
+        "El tono es de empleado de mostrador. Podés asesorar con el consejo permitido; "
+        "no inventes códigos ni precios:\n"
         f"{extra_context}"
     )
 
@@ -108,7 +110,7 @@ async def _openai_reply(user_text: str, history: list[dict], extra_context: str)
         "model": settings.openai_model,
         "messages": messages,
         "temperature": 0.4,
-        "max_tokens": 450,
+        "max_tokens": 180,
     }
     headers = {
         "Authorization": f"Bearer {settings.openai_api_key}",
@@ -152,7 +154,7 @@ def _gemini_configs(types, instruction: str):
                 types.GenerateContentConfig(
                     system_instruction=instruction,
                     temperature=0.4,
-                    max_output_tokens=2048,
+                    max_output_tokens=400,
                     thinking_config=thinking(thinking_budget=0),
                     automatic_function_calling=afc,
                 )
@@ -163,7 +165,7 @@ def _gemini_configs(types, instruction: str):
         types.GenerateContentConfig(
             system_instruction=instruction,
             temperature=0.4,
-            max_output_tokens=2048,
+            max_output_tokens=400,
             automatic_function_calling=afc,
         )
     )
@@ -171,7 +173,7 @@ def _gemini_configs(types, instruction: str):
         types.GenerateContentConfig(
             system_instruction=instruction,
             temperature=0.4,
-            max_output_tokens=2048,
+            max_output_tokens=400,
         )
     )
     return configs

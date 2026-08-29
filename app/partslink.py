@@ -13,6 +13,7 @@ from pathlib import Path
 from app.config import _ROOT, settings
 from app.sales import (
     axle_wanted,
+    catalog_close,
     fold,
     needs_axle_clarify,
     needs_side_clarify,
@@ -49,6 +50,21 @@ def _short_spec(chasis: str) -> dict:
     return item if isinstance(item, dict) else {}
 
 
+def short_vehicle_spec(chasis: str) -> dict:
+    """Ficha de un chasis de 8 dígitos si está en la lista del local."""
+    return _short_spec(chasis)
+
+
+def listed_has_parts(listed: str) -> bool:
+    """True si esta consulta trajo códigos o ítems de catálogo."""
+    blob = fold(listed or "")
+    if "aparece:" not in blob:
+        return False
+    if blob.startswith("para el chasis"):
+        return True
+    return any(name in blob for name in ("infobal", "expoyer", "service box"))
+
+
 class PartsLinkError(RuntimeError):
     pass
 
@@ -81,7 +97,8 @@ def format_results(chasis: str, vehicle: str, rows: list[dict], ask: str = "") -
         if clean:
             vehicle_bit = f" ({clean})"
     lines = [f"Para el chasis {chasis}{vehicle_bit} aparece:"]
-    for item in rows[:5]:
+    shown = rows[:5]
+    for item in shown:
         code = item.get("code") or ""
         name = item.get("name") or ""
         extra = item.get("note") or ""
@@ -89,11 +106,8 @@ def format_results(chasis: str, vehicle: str, rows: list[dict], ask: str = "") -
         if extra and extra not in piece:
             piece = f"{piece} ({extra})"
         lines.append(f"- {piece}")
-    if len(rows) > 5:
-        lines.append("Hay más variantes; si querés te lo confirma un vendedor.")
-    else:
-        lines.append("El precio te lo confirmamos en el local. ¿Lo encargamos?")
-    lines.append("Si querés el despiece, pedime la foto. Otro auto o pieza: *nuevo pedido*.")
+    lines.append(catalog_close(len(rows)))
+    lines.append("Otro auto o pieza: *nuevo pedido*.")
     return "\n".join(lines)
 
 
@@ -103,6 +117,7 @@ async def lookup(
     screenshot_to: str | None = None,
     brand: str = "",
     model: str = "",
+    spec: dict | None = None,
 ) -> dict:
     """Devuelve vehicle + filas de la tabla. No inventa precios."""
     if not enabled():
@@ -116,6 +131,7 @@ async def lookup(
             screenshot_to,
             brand.strip().lower(),
             model.strip(),
+            spec or {},
         )
 
 
@@ -125,6 +141,7 @@ async def _lookup_locked(
     screenshot_to: str | None = None,
     brand: str = "",
     model: str = "",
+    spec: dict | None = None,
 ) -> dict:
     from playwright.async_api import async_playwright
 
@@ -143,7 +160,9 @@ async def _lookup_locked(
         page = await context.new_page()
         page.set_default_timeout(25000)
         await _ensure_logged_in(page)
-        vehicle = await _search_chassis(page, chasis, brand=brand, model=model)
+        vehicle = await _search_chassis(
+            page, chasis, brand=brand, model=model, spec=spec or {}
+        )
         rows = await _search_parts(page, query)
         rows, ask = _narrow_rows(rows, query)
         if screenshot_to and rows and not ask:
@@ -152,9 +171,11 @@ async def _lookup_locked(
             opened = await _open_diagram(page, rows)
             captured = False
             if opened:
+                await _select_part(page, rows[0])
                 captured = await _capture_diagram(page, path)
             if captured:
-                logger.info("PartsLink24 despiece en %s", path)
+                marked = await _mark_part_on_shot(page, path)
+                logger.info("PartsLink24 despiece en %s marcado=%s", path, marked)
             else:
                 logger.warning("PartsLink24: no hay lámina para fotografiar")
                 if path.exists():
@@ -201,6 +222,19 @@ async def _ensure_logged_in(page) -> None:
     if not await _login_visible(page) and await _chassis_box(page).count():
         return
     logger.info("PartsLink24: inicio de sesión")
+    await _submit_login(
+        page,
+        settings.partslink24_company_id,
+        settings.partslink24_user,
+        settings.partslink24_password,
+    )
+    try:
+        await _chassis_box(page).first.wait_for(state="visible", timeout=30000)
+    except Exception as exc:
+        raise PartsLinkError("No pude entrar a PartsLink24. Revisá usuario y clave.") from exc
+
+
+async def _submit_login(page, company_id: str, username: str, password_value: str) -> None:
     company = page.locator('[data-test-id="pl24-login-ui-loginForm-input-companyId"]').locator("visible=true")
     user = page.locator('[data-test-id="pl24-login-ui-loginForm-input-username"]').locator("visible=true")
     password = page.locator('[data-test-id="pl24-login-ui-loginForm-input-password"]').locator("visible=true")
@@ -208,9 +242,9 @@ async def _ensure_logged_in(page) -> None:
         company = page.locator('input[name="companyId"]').locator("visible=true")
         user = page.locator('input[name="username"]').locator("visible=true")
         password = page.locator('input[type="password"]').locator("visible=true")
-    await company.first.fill(settings.partslink24_company_id)
-    await user.first.fill(settings.partslink24_user)
-    await password.first.fill(settings.partslink24_password)
+    await company.first.fill(company_id)
+    await user.first.fill(username)
+    await password.first.fill(password_value)
     button = page.get_by_role("button", name=re.compile(r"iniciar sesi[oó]n|log in", re.I)).locator("visible=true")
     await button.first.click()
     confirm = page.get_by_role("button", name=re.compile(r"^confirmar$", re.I))
@@ -220,10 +254,6 @@ async def _ensure_logged_in(page) -> None:
         logger.info("PartsLink24: confirmé reemplazar la sesión abierta")
     except Exception:
         logger.info("PartsLink24: no pidió confirmar sesión")
-    try:
-        await _chassis_box(page).first.wait_for(state="visible", timeout=30000)
-    except Exception as exc:
-        raise PartsLinkError("No pude entrar a PartsLink24. Revisá usuario y clave.") from exc
 
 
 async def _login_visible(page) -> bool:
@@ -485,13 +515,20 @@ async def _drill_known_vehicle(page, spec: dict) -> bool:
     return True
 
 
-async def _search_chassis(page, chasis: str, brand: str = "", model: str = "") -> str:
+async def _search_chassis(
+    page,
+    chasis: str,
+    brand: str = "",
+    model: str = "",
+    spec: dict | None = None,
+) -> str:
     short = 8 <= len(chasis) < 17
     brands: list[str] = []
     if brand:
         brands.append(brand)
     elif short:
         brands.append("peugeot")
+    ficha = _short_spec(chasis) or dict(spec or {})
     if short:
         for name in brands:
             await _dismiss_dialogs(page)
@@ -501,24 +538,25 @@ async def _search_chassis(page, chasis: str, brand: str = "", model: str = "") -
             if not await _already_in_brand(page, name):
                 logger.warning("PartsLink24: no entré al catálogo %s", name)
                 continue
-            spec = _short_spec(chasis)
-            if spec:
-                if await _drill_known_vehicle(page, spec):
+            if ficha:
+                if await _drill_known_vehicle(page, ficha):
                     label = " ".join(
                         part
                         for part in (
-                            spec.get("modelo"),
-                            spec.get("anio"),
-                            "AMLAT" if spec.get("amlat") else "",
-                            spec.get("carroceria"),
-                            spec.get("motor"),
+                            ficha.get("modelo") or model,
+                            ficha.get("anio"),
+                            "AMLAT" if ficha.get("amlat") else "",
+                            ficha.get("carroceria"),
+                            ficha.get("motor"),
                         )
                         if part
                     )
                     return label.strip() or chasis
                 logger.warning("PartsLink24: no pude armar el auto de la ficha %s", chasis)
-            if await _submit_chassis(page, chasis):
-                return await _vehicle_name(page)
+            known = bool(_short_spec(chasis))
+            if known or not ficha:
+                if await _submit_chassis(page, chasis):
+                    return await _vehicle_name(page)
             logger.warning("PartsLink24: %s no abrió con catálogo %s", chasis, name)
         raise PartsLinkError(
             f"El chasis {chasis} no se asignó en el catálogo {brands[0] if brands else 'de la marca'}"
@@ -609,13 +647,23 @@ async def _open_diagram(page, rows: list[dict]) -> bool:
     for loc in clicks:
         if await _click_first(page, loc):
             logger.info("PartsLink24 clic despiece code=%s lamina=%s", code, lamina)
-            await page.wait_for_timeout(800)
+            await page.wait_for_timeout(1600)
             return True
     logger.warning("PartsLink24: no pude cliclear un resultado")
     return False
 
 
-async def _capture_diagram(page, path: Path) -> bool:
+async def _select_part(page, row: dict) -> None:
+    """Vuelve a cliclear el código para que el catálogo resalte esa pieza."""
+    code = str((row or {}).get("code") or "").strip()
+    if not code:
+        return
+    loc = page.get_by_text(code, exact=False).locator("visible=true")
+    if await _click_first(page, loc):
+        await page.wait_for_timeout(1200)
+
+
+async def _find_diagram(page):
     selectors = (
         "canvas",
         "svg",
@@ -626,25 +674,30 @@ async def _capture_diagram(page, path: Path) -> bool:
         '[class*="sheet" i]',
         "img",
     )
+    best = None
+    best_area = 0.0
+    for target in (page, *page.frames):
+        for selector in selectors:
+            try:
+                loc = target.locator(selector).locator("visible=true")
+                count = await loc.count()
+            except Exception:
+                continue
+            for index in range(min(count, 8)):
+                box = await loc.nth(index).bounding_box()
+                if not box or box["width"] < 220 or box["height"] < 160:
+                    continue
+                area = box["width"] * box["height"]
+                if area > best_area:
+                    best_area = area
+                    best = loc.nth(index)
+    return best
+
+
+async def _capture_diagram(page, path: Path) -> bool:
     min_bytes = 18000
     for _ in range(16):
-        best = None
-        best_area = 0.0
-        for target in (page, *page.frames):
-            for selector in selectors:
-                try:
-                    loc = target.locator(selector).locator("visible=true")
-                    count = await loc.count()
-                except Exception:
-                    continue
-                for index in range(min(count, 8)):
-                    box = await loc.nth(index).bounding_box()
-                    if not box or box["width"] < 220 or box["height"] < 160:
-                        continue
-                    area = box["width"] * box["height"]
-                    if area > best_area:
-                        best_area = area
-                        best = loc.nth(index)
+        best = await _find_diagram(page)
         if best is None:
             await page.wait_for_timeout(500)
             continue
@@ -657,6 +710,133 @@ async def _capture_diagram(page, path: Path) -> bool:
     size = path.stat().st_size if path.exists() else 0
     logger.warning("PartsLink24 captura chica (%s bytes)", size)
     return False
+
+
+_JS_HIGHLIGHT = """() => {
+    const tooBig = (r) => r.width > 420 || r.height > 420;
+    const tooSmall = (r) => r.width < 8 || r.height < 8;
+    const hits = [];
+    const push = (el) => {
+        const r = el.getBoundingClientRect();
+        if (tooSmall(r) || tooBig(r) || r.x < 0 || r.y < 0) return;
+        hits.push({x: r.x, y: r.y, w: r.width, h: r.height});
+    };
+    document.querySelectorAll(
+        '[class*="selected" i], [class*="highlight" i], [class*="hotspot" i], [aria-selected="true"]'
+    ).forEach(push);
+    document.querySelectorAll("svg circle, svg ellipse, svg path, svg g").forEach((el) => {
+        const stroke = (el.getAttribute("stroke") || "").toLowerCase();
+        const style = (el.getAttribute("style") || "").toLowerCase();
+        const blob = stroke + style;
+        if (/#f|#e|red|orange|#ff|rgb\\(\\s*2[0-9]{2}/.test(blob)) push(el);
+    });
+    hits.sort((a, b) => a.w * a.h - b.w * b.h);
+    return hits[0] || null;
+}"""
+
+
+async def _mark_part_on_shot(page, path: Path) -> bool:
+    """Círculo sobre la pieza resaltada en el despiece."""
+    diagram = await _find_diagram(page)
+    mark = await _dom_highlight_center(page, diagram, path)
+    if mark is None:
+        mark = _color_highlight_center(path)
+    if mark is None:
+        logger.warning("PartsLink24: no ubiqué el hotspot para el círculo")
+        return False
+    cx, cy, radius = mark
+    _paint_circle(path, cx, cy, radius)
+    logger.info("PartsLink24 círculo en (%.0f, %.0f) r=%.0f", cx, cy, radius)
+    return True
+
+
+async def _dom_highlight_center(page, diagram, img_path: Path) -> tuple[float, float, float] | None:
+    if diagram is None or not img_path.exists():
+        return None
+    box = await diagram.bounding_box()
+    if not box:
+        return None
+    hit = None
+    for target in (page, *page.frames):
+        try:
+            found = await target.evaluate(_JS_HIGHLIGHT)
+        except Exception:
+            continue
+        if found:
+            hit = found
+            break
+    if not hit:
+        return None
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    with Image.open(img_path) as image:
+        iw, ih = image.size
+    sx = iw / max(box["width"], 1)
+    sy = ih / max(box["height"], 1)
+    cx = (hit["x"] + hit["w"] / 2 - box["x"]) * sx
+    cy = (hit["y"] + hit["h"] / 2 - box["y"]) * sy
+    if not (0 <= cx <= iw and 0 <= cy <= ih):
+        return None
+    radius = max(hit["w"], hit["h"]) * max(sx, sy) * 0.55 + 16
+    return cx, cy, radius
+
+
+def _color_highlight_center(path: Path) -> tuple[float, float, float] | None:
+    try:
+        from PIL import Image
+    except ImportError:
+        logger.warning("Falta Pillow para marcar el despiece")
+        return None
+    if not path.exists():
+        return None
+    image = Image.open(path).convert("RGB")
+    width, height = image.size
+    pixels = image.load()
+    xs: list[int] = []
+    ys: list[int] = []
+    step = 2 if width * height > 400_000 else 1
+    for y in range(0, height, step):
+        for x in range(0, width, step):
+            red, green, blue = pixels[x, y]
+            mx, mn = max(red, green, blue), min(red, green, blue)
+            if mx < 90 or mx - mn < 55:
+                continue
+            is_red = red > green + 25 and red > blue + 25 and red > 140
+            is_blue = blue > red + 25 and blue > green + 15 and blue > 140
+            is_yellow = red > 180 and green > 150 and blue < 120
+            if is_red or is_blue or is_yellow:
+                xs.append(x)
+                ys.append(y)
+    if len(xs) < 18:
+        return None
+    cx = sum(xs) / len(xs)
+    cy = sum(ys) / len(ys)
+    near_x = [x for x, y in zip(xs, ys) if abs(x - cx) + abs(y - cy) < 200]
+    near_y = [y for x, y in zip(xs, ys) if abs(x - cx) + abs(y - cy) < 200]
+    if len(near_x) < 10:
+        near_x, near_y = xs, ys
+    radius = max(max(near_x) - min(near_x), max(near_y) - min(near_y)) * 0.55 + 18
+    if radius > min(width, height) * 0.28:
+        radius = min(width, height) * 0.12
+    return cx, cy, radius
+
+
+def _paint_circle(path: Path, cx: float, cy: float, radius: float) -> None:
+    from PIL import Image, ImageDraw
+
+    image = Image.open(path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    limit = min(image.size) * 0.22
+    radius = max(28.0, min(float(radius), limit))
+    for width, color in ((8, (255, 255, 255)), (5, (220, 20, 20))):
+        draw.ellipse(
+            [cx - radius, cy - radius, cx + radius, cy + radius],
+            outline=color,
+            width=width,
+        )
+    image.save(path, "PNG")
 
 
 async def _read_search_list(page) -> list[dict]:
@@ -853,6 +1033,91 @@ def _piece_subject(name: str) -> str:
     return ""
 
 
+_SUBJECT_ALIASES = {
+    "radiador": {"radiador", "radiator"},
+    "radiator": {"radiador", "radiator"},
+    "ventilador": {"ventilador", "electroventilador", "electro"},
+    "electroventilador": {"ventilador", "electroventilador", "electro"},
+    "faro": {"faro", "optica", "piloto", "farol"},
+    "optica": {"faro", "optica", "piloto", "farol"},
+    "piloto": {"faro", "optica", "piloto", "farol"},
+    "amortiguador": {"amortiguador", "amort"},
+    "bomba": {"bomba", "pump"},
+    "filtro": {"filtro", "filter"},
+}
+
+_SATELLITES = {
+    "radiador": (
+        "persiana",
+        "ventilador",
+        "electroventilador",
+        "caja",
+        "contacto",
+        "manguito",
+        "sensor",
+        "tapa",
+        "tapon",
+        "deposito",
+        "expansion",
+        "vaso",
+    ),
+}
+
+
+def _subject_aliases(word: str) -> set[str]:
+    if not word:
+        return set()
+    return _SUBJECT_ALIASES.get(word, {word})
+
+
+def _item_is_primary(item: dict, query: str) -> bool:
+    """El nombre ES la pieza pedida, no un accesorio que la menciona."""
+    wanted = _piece_subject(query)
+    if not wanted:
+        return True
+    subject = _piece_subject(str(item.get("name") or ""))
+    return subject in _subject_aliases(wanted)
+
+
+def _wrong_radiator_family(item: dict, query: str) -> bool:
+    wanted = fold(query)
+    name = fold(str(item.get("name") or ""))
+    if "radiador" not in wanted:
+        return False
+    want_oil = "aceite" in wanted
+    has_oil = "aceite" in name
+    if want_oil and not has_oil:
+        return True
+    if not want_oil and has_oil:
+        return True
+    return False
+
+
+def _is_satellite(item: dict, query: str) -> bool:
+    wanted = _piece_subject(query)
+    if not wanted:
+        return False
+    asked = fold(query)
+    name = fold(str(item.get("name") or ""))
+    subject = _piece_subject(str(item.get("name") or ""))
+    for word in _SATELLITES.get(wanted, ()):
+        if word in asked:
+            continue
+        if subject == word or word in name:
+            return True
+    return False
+
+
+def _keep_asked_piece(rows: list[dict], query: str) -> list[dict]:
+    """Si pidieron radiador, queda el radiador; no el ventilador ni la persiana."""
+    kept = [item for item in rows if not _wrong_radiator_family(item, query)]
+    primary = [item for item in kept if _item_is_primary(item, query)]
+    if primary:
+        return primary
+    without_sat = [item for item in kept if not _is_satellite(item, query)]
+    return without_sat or kept
+
+
 def _is_pump_article(item: dict) -> bool:
     subject = _piece_subject(str(item.get("name") or ""))
     return subject in {"bomba", "pump", "impulsor", "rodete"}
@@ -900,6 +1165,12 @@ def _rank_rows(rows: list[dict], query: str) -> list[dict]:
             continue
         if len(tokens) >= 2 and hits < len(tokens):
             continue
+        if _wrong_radiator_family(item, query):
+            continue
+        if _item_is_primary(item, query):
+            hits += 10
+        elif _is_satellite(item, query):
+            hits -= 5
         scored.append((hits, item))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in scored][:8]
@@ -955,6 +1226,7 @@ def _narrow_rows(rows: list[dict], query: str) -> tuple[list[dict], str]:
     if variant:
         return [], variant
 
+    cleaned = _keep_asked_piece(cleaned, query)
     return cleaned[:5], ""
 
 
@@ -1023,21 +1295,39 @@ async def lookup_reply(
     screenshot_to: str | None = None,
     brand: str = "",
     model: str = "",
+    spec: dict | None = None,
 ) -> str:
     try:
         data = await lookup(
-            chasis, query, screenshot_to=screenshot_to, brand=brand, model=model
+            chasis,
+            query,
+            screenshot_to=screenshot_to,
+            brand=brand,
+            model=model,
+            spec=spec,
         )
     except PartsLinkError as exc:
         logger.warning("PartsLink24: %s", exc)
         detail = str(exc)
         if "no se asignó" in detail or "no abrió el catálogo" in detail:
-            where = f" en {brand}" if brand else ""
+            if spec:
+                label = " ".join(
+                    part
+                    for part in (
+                        str(spec.get("modelo") or "").strip(),
+                        str(spec.get("motor") or "").strip(),
+                    )
+                    if part
+                )
+                return (
+                    f"Entré al catálogo Peugeot y no pude armar el auto"
+                    f"{(' ' + label) if label else ''} con el chasis {chasis}. "
+                    "Pasame los 17 de la cédula o el parabrisas, o lo mira un vendedor."
+                )
             return (
-                f"Entré al catálogo Peugeot de PartsLink y {chasis} no aparece "
-                "(Acceso directo no encontró el auto). "
-                "Ese número de 8 no alcanza: pasame los 17 del parabrisas o de la cédula. "
-                "Si no, lo mira un vendedor."
+                f"Anoté el chasis {chasis}, pero con esos 8 dígitos no abre el auto en el catálogo. "
+                "Decime si es 1.4 o 1.6, nafta o diesel, y te busco la pieza. "
+                "Si tenés los 17 de la cédula o el parabrisas, mejor."
             )
         return (
             f"No pude consultar el catálogo ahora. "

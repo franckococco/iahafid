@@ -11,7 +11,11 @@ data/chats.json
 data/learned.json
 data/customers.json
 data/partslink-state.json
+data/infobal-state.json
+data/expoyer-state.json
+data/servicebox-state.json
 data/partslink-debug.png
+data/probe-*.png
 data/shots/
 TOKEN-LOCAL.txt
 data/tunnel-url.txt

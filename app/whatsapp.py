@@ -37,8 +37,8 @@ def _argentine_alternates(wa_id: str) -> list[str]:
     return alts
 
 
-async def send_text(to: str, body: str, user_id: str = "") -> bool:
-    if not is_sendable(body):
+async def send_text(to: str, body: str, user_id: str = "", *, check: bool = True) -> bool:
+    if check and not is_sendable(body):
         logger.error("Bloqueé mensaje interno/cortado: %s", (body or "")[:160])
         body = SAFE_FALLBACK
     url = f"{GRAPH_URL}/{settings.whatsapp_phone_number_id}/messages"

@@ -25,10 +25,10 @@ cd iahafid
 
 2) Copiar el .env a mano
 ------------------------
-El .env NO está en GitHub (tiene el token de WhatsApp, el de Gemini y PartsLink24).
+El .env NO está en GitHub (WhatsApp, Gemini, PartsLink24, Infobal, Expoyer, Service Box).
 Copiá el archivo .env de esta PC a la misma carpeta en la otra.
 O copiá TOKEN-LOCAL.txt (está en esta PC, no se sube a GitHub).
-Sin eso el bot no habla ni con WhatsApp ni con Gemini ni entra a PartsLink24.
+Sin eso el bot no habla ni entra a los catálogos.
 
 
 3) Instalar y levantar (PowerShell, dentro de la carpeta)
@@ -49,8 +49,8 @@ En otra ventana:
 
 python scripts\keep_tunnel.py
 
-AHORA (28 ago 2026, se vence si el túnel se cae):
-Callback URL: https://60809fc999d428.lhr.life/webhook
+AHORA (29 ago 2026, se vence si el túnel se cae):
+Callback URL: https://75dbf938565bc9.lhr.life/webhook
 Servidor local: http://127.0.0.1:8000
 Token de verificación: iahaf-verify-cambiar
 
@@ -63,23 +63,26 @@ Si cambió la URL del túnel, pegala de nuevo y Verify and save.
 
 4) Pegar ESTO en Cursor (chat nuevo, carpeta del proyecto abierta)
 ------------------------------------------------------------------
-Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor, y busca en PartsLink24. Si la pieza es ambigua (bomba, filtro), PREGUNTA el tipo antes de buscar. "bomba de agua" busca "bomba para liquido refrigerante" y SOLO lista artículos cuyo nombre ES la bomba (no tubo/sensor/radiador que la mencionan). La foto es el DESPIECE (lámina), no la lista de resultados. "nuevo pedido" reinicia. uvicorn sin --reload. Túnel: arrancar.ps1 / scripts/keep_tunnel.py (localhost.run, la URL cambia). Siempre devolver: URL de Meta webhook + callback del túnel + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. No subas .env. Próximo paso: hosting con URL fija (Railway).
+Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor. VW → PartsLink24. Peugeot/Citroën → Infobal, si vacío Expoyer, si vacío Service Box. Si la pieza es ambigua (bomba, filtro), PREGUNTA el tipo antes de buscar. El artículo tiene que SER la pieza (radiador ≠ ventilador/persiana/aceite). Una sola pieza: código + precio en el local, sin "¿Lo encargamos?". Varias de la misma: deriva a vendedor. La foto es el DESPIECE con círculo, solo si quedó un ítem. "nuevo pedido" reinicia. uvicorn sin --reload. Túnel: arrancar.ps1 / scripts/keep_tunnel.py (localhost.run, la URL cambia). Siempre devolver: URL de Meta webhook + callback del túnel + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. No subas .env. Próximo paso: hosting con URL fija (Railway).
 
 
 5) Cómo vende ahora
 -------------------
 - Rápido (filtro, pastillas): cotiza del catálogo local con marca/modelo/año. Ejemplo: filtro 308 2014 → $12.500.
-- Complejo: pide número de chasis, busca en PartsLink24, lista códigos OEM.
+- Complejo: pide número de chasis. VW → PartsLink24. Peugeot/Citroën → Infobal, después Expoyer, después Service Box.
 - Pieza ambigua: pregunta. "bomba" → ¿agua/refrigeración, combustible, aceite, dirección o vacío? "filtro" → ¿aceite, aire, combustible o habitáculo? Amortiguador → delantera/trasera. Faro → izquierda/derecha.
 - "bomba de agua": busca "bomba para liquido refrigerante". Solo pasa si el nombre del artículo ES la bomba (arranca con bomba/impulsor). No lista tubo, sensor ni radiador aunque digan "bomba refrigerante".
+- "radiador": solo el radiador de refrigerante, no ventilador, persiana, aceite ni caja de contacto. El círculo del despiece tiene que coincidir con ese ítem.
+- Una sola pieza: código + "Ese es el que corresponde. El precio te lo confirmamos en el local." Sin "¿Lo encargamos?".
+- Varias de la misma pieza: lista y deriva a vendedor. No pide encargo. Foto del círculo solo si quedó un ítem.
 - Si hay bomba completa y también solo el impulsor, pregunta cuál.
 - Respuestas cortas ("la de agua", "refrigeración", "delantera") se juntan con la pieza ya anotada.
 - Si pide foto / despiece: abre la lámina y manda esa captura, no el catálogo de la izquierda.
 - Nunca pide número de motor.
 - Si el cliente manda el chasis primero: lo anota y pregunta qué pieza busca.
 - "nuevo pedido" / "otro auto" / "empezar de nuevo" cierra el pedido.
-- VW VIN de 17 abre el auto (probado: Bora TDI 2006). Peugeot de 8 dígitos: data/peugeot-chasis.json y entra por marca (Acceso directo no indexa last-8).
-- Chasis/got-chassis/listas OEM: plantillas, no Gemini (Gemini cortaba frases y filtraba el prompt).
+- VW VIN de 17 abre el auto (probado: Bora TDI 2006, Amarok 2018 8AWDD22H6JA023887). Peugeot de 8 dígitos: data/peugeot-chasis.json y entra por marca (Acceso directo no indexa last-8). Chasis de 8 con texto extra ("8G535332 de una partner") también se toma.
+- Listas OEM: plantilla, no Gemini. Espera "Dame un segundo, estoy en el catálogo." (no termina en "busco", eso disparaba el fallback "se me cortó").
 - Cada consulta que cierra en un solo producto se guarda para la próxima (sin leaks del system prompt).
 
 
@@ -91,7 +94,7 @@ Servidor local: http://127.0.0.1:8000
 Consulta local: http://127.0.0.1:8000/consulta?q=filtro+308+2014
 App: https://developers.facebook.com/apps/1810396190374656/dashboard/
 Webhook Meta: https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business
-Callback actual: https://60809fc999d428.lhr.life/webhook
+Callback actual: https://75dbf938565bc9.lhr.life/webhook
 App ID: 1810396190374656
 Phone Number ID: 1276343198895660
 WABA: 1281373443982245
@@ -99,7 +102,7 @@ System user: iahaf-bot
 Chat de prueba (from): 5493884801324 — a veces hay que enviar como 54388154801324 (app/whatsapp.py)
 
 
-7) Notas del chat (28 ago 2026)
+7) Notas del chat (29 ago 2026)
 --------------------------------
 - 1ª prueba: bomba de agua BORA 2006 AXR 1.9 TDI, chasis 3VWSP49MX6M031230.
   Fallo: listó combustible/vacío, turbo, deflector de agua, aceite e inyector (mezclaba "bomba" O "agua").
@@ -107,6 +110,10 @@ Chat de prueba (from): 5493884801324 — a veces hay que enviar como 54388154801
 - 2ª prueba: bomba de agua BORA 2010 1.9 diesel, chasis 3VWSW49M5AM001581.
   Fallo: listó tubo flexible, sensor de temperatura y radiadores (el circuito nombra "bomba refrigerante").
   Arreglo: el artículo tiene que SER la bomba (primera palabra útil = bomba/impulsor/rodete). Búsqueda "bomba para liquido refrigerante"; si no hay filas, prueba "bomba" y filtra.
+- Amarok 2018 chasis 8AWDD22H6JA023887, radiador: el círculo marcaba bien la pieza 1, pero listaba ventilador/persiana/aceite y preguntaba "¿Lo encargamos?" junto con precio en el local.
+  Arreglo: una sola pieza pedida; si hay varias de la misma, deriva a vendedor. Sin pedir encargo por chat.
+- Peugeot/Citroën no van a PartsLink. Infobal a veces devuelve radiadores de aceite de otras marcas; se filtran. Service Box a menudo está caído ("problema técnico").
+- "Disculpá, se me cortó" ×3: el wait terminaba en "busco" y is_sendable lo reemplazaba. Ahora el wait termina en punto y no pasa por ese check.
 - Túnel localhost.run se cae y cambia de URL; keep_tunnel.py reconecta. Callback viva abajo. Si WhatsApp no llega, re-pegar en Meta.
 - Hosting fijo (Railway) pendiente. No commitear .env ni .playwright-browsers ni data/tunnel-url.txt.
-- Probar de nuevo: *nuevo pedido* + bomba de agua + chasis.
+- Probar: *nuevo pedido* + radiador + chasis Amarok, o Peugeot con chasis de 8.

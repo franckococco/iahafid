@@ -35,7 +35,7 @@ _SEEDS = (
         "user": "necesito el faro derecho trasero",
         "assistant": (
             "Para el faro preciso el número de chasis, el de la cédula o el parabrisas. "
-            "El del motor no me sirve. ¿Me lo pasás y te ubico el código?"
+            "El del motor no me sirve. ¿Me lo pasás y te lo ubico?"
         ),
     },
     {
@@ -44,14 +44,14 @@ _SEEDS = (
         "user": "faro derecho trasero",
         "assistant": (
             "Con ese chasis el faro trasero derecho aparece como 2H1 945 096 H. "
-            "Si querés te mando el despiece. El precio te lo confirmamos en el local."
+            "Ese es el que corresponde. El precio te lo confirmamos en el local."
         ),
     },
     {
         "kind": "got_chassis",
         "keys": ["chasis"],
         "user": "8AWDD22H6JA023887",
-        "assistant": "Listo, anoté el chasis. ¿Qué pieza estás buscando para ese auto?",
+        "assistant": "Listo, anoté el chasis. Decime qué pieza estás buscando y te la ubico.",
     },
 )
 
@@ -93,6 +93,10 @@ def remember_reply(kind: str, query: str, answer: str) -> None:
         return
     blob = fold(text)
     if "problema para generar" in blob or "iahaf recibio" in blob:
+        return
+    if "se me corto" in blob:
+        return
+    if text[-1:] not in ".?!":
         return
     if not is_sendable(text):
         return

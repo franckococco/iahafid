@@ -6,28 +6,29 @@ import re
 import unicodedata
 
 HANDOFF_REPLY = (
-    "Dale, te dejo con un vendedor del local para esto. "
+    "Dale, te dejo con un compañero del local para esto. "
     "En un rato te escriben por acá."
 )
 
+
+def catalog_close(n_items: int) -> str:
+    """Una pieza: código y precio en el local. Varias: no encargar, pasa a vendedor."""
+    if n_items <= 1:
+        return "Ese es el que corresponde. El precio te lo confirmamos en el local."
+    return (
+        "Hay varias en el catálogo; no te armo el encargo desde acá. "
+        "Te dejo con un vendedor para que te marque la que corresponde."
+    )
+
 ASK_CHASSIS_REPLY = (
-    "Para esa pieza en el local usamos el número de chasis, el de la cédula o el parabrisas, "
-    "no el de motor. ¿Me lo pasás? Con eso te ubico mejor."
+    "Pasame el chasis de la cédula o el parabrisas, no el de motor."
 )
 
-GOT_CHASSIS_ONLY = (
-    "Dale, anoté el chasis. ¿Qué pieza estás buscando para ese auto?"
-)
+GOT_CHASSIS_ONLY = "Listo, anoté el chasis. ¿Qué pieza buscás?"
 
-RESET_REPLY = (
-    "Dale, arrancamos de cero. ¿Qué pieza necesitás y para qué auto? "
-    "Si es compleja, pasame el número de chasis."
-)
+RESET_REPLY = "Dale, de cero. ¿Qué pieza y para qué auto?"
 
-NEED_DETAILS = (
-    "Contame qué pieza necesitás y para qué auto. "
-    "Si es compleja, pasame el chasis de la cédula o el parabrisas."
-)
+NEED_DETAILS = "¿Qué pieza necesitás y para qué auto?"
 
 _RESET = (
     "nuevo pedido",
@@ -101,7 +102,7 @@ _MOTOR_HINT = re.compile(r"\b(motor|nro\.?\s*(de\s*)?motor|numero\s+de\s+motor)\
 def brand_hint(*texts: str) -> str:
     """Marca del auto para entrar al catálogo correcto en PartsLink24."""
     blob = fold(" ".join(t for t in texts if t))
-    if "peugeot" in blob:
+    if "peugeot" in blob or "peugeout" in blob:
         return "peugeot"
     if "citroen" in blob:
         return "citroen"
@@ -119,6 +120,7 @@ def model_hint(*texts: str) -> str:
         "5008",
         "partner",
         "rifter",
+        "berlingo",
         "207",
         "208",
         "308",
@@ -135,6 +137,44 @@ def model_hint(*texts: str) -> str:
         if re.search(rf"\b{item}\b", blob):
             return item
     return ""
+
+
+def oem_family(marca: str = "", modelo: str = "", chasis: str = "") -> str:
+    """vw = PartsLink24; psa = Service Box, Infobal y Expoyer."""
+    marca_f = fold(marca)
+    modelo_f = fold(modelo)
+    code = (chasis or "").strip().upper()
+    if marca_f in {"peugeot", "citroen"}:
+        return "psa"
+    if marca_f in {"volkswagen"}:
+        return "vw"
+    if modelo_f in {
+        "partner",
+        "rifter",
+        "berlingo",
+        "207",
+        "208",
+        "308",
+        "408",
+        "301",
+        "206",
+        "307",
+        "306",
+        "205",
+        "2008",
+        "3008",
+        "5008",
+        "c3",
+        "c4",
+    }:
+        return "psa"
+    if code.startswith(("VF3", "VF7", "VF8")):
+        return "psa"
+    if code.startswith(_PREFIXES):
+        return "vw"
+    if 8 <= len(code) < 17:
+        return "psa"
+    return "vw"
 
 
 def fold(text: str) -> str:
@@ -185,6 +225,14 @@ def extract_chassis(text: str) -> str | None:
         code = tokens[0].upper()
         if 8 <= len(code) <= 17 and _looks_like_chassis(code):
             return code
+    # "8G535332 partner furgoneta": un solo código corto mezclado con el auto.
+    shorts = [
+        token.upper()
+        for token in tokens
+        if 8 <= len(token) <= 12 and _looks_like_chassis(token.upper())
+    ]
+    if len(shorts) == 1:
+        return shorts[0]
     return None
 
 
@@ -212,7 +260,7 @@ def handoff_reply(chasis: str = "") -> str:
     if chasis:
         return (
             f"Listo, anoté el chasis {chasis}. "
-            "Te dejo con un vendedor para ubicar la pieza exacta. En un rato te escriben."
+            "Te dejo con un compañero para ubicar la pieza exacta. En un rato te escriben."
         )
     return HANDOFF_REPLY
 
@@ -311,12 +359,25 @@ _VEHICLE_NOISE = {
     "gol",
     "trend",
     "peugeot",
+    "peugeout",
     "citroen",
     "volkswagen",
     "vw",
     "audi",
     "308",
+    "207",
+    "208",
+    "206",
+    "301",
+    "306",
+    "307",
+    "408",
     "c3",
+    "partner",
+    "rifter",
+    "berlingo",
+    "furgoneta",
+    "furgon",
     "auto",
     "camioneta",
     "axr",
@@ -449,6 +510,38 @@ def piece_clarify_ask(query: str) -> str:
     return ""
 
 
+def is_motor_clarify(query: str) -> bool:
+    """El cliente solo aclaró cilindrada o nafta/diesel, no una pieza nueva."""
+    hints = motor_hint(query)
+    if not hints.get("litros") and not hints.get("fuel"):
+        return False
+    tokens = [
+        token
+        for token in fold(query).replace(",", ".").split()
+        if token and token not in _HANGING
+    ]
+    motorish = {
+        "nafta",
+        "naftero",
+        "diesel",
+        "gasoil",
+        "gasol",
+        "hdi",
+        "tdi",
+        "1.4",
+        "1.6",
+        "motor",
+        "cilindrada",
+        "litros",
+    }
+    leftover = [
+        token
+        for token in tokens
+        if token not in motorish and not re.fullmatch(r"1[.][46]", token)
+    ]
+    return not leftover
+
+
 def is_clarify_only(query: str) -> bool:
     """Respuesta corta a una pregunta (la de agua, refrigeración, delantera)."""
     if is_position_only(query):
@@ -518,6 +611,111 @@ def search_queries(query: str) -> list[str]:
     return out
 
 
+def motor_hint(*texts: str) -> dict:
+    """1.4 / 1.6 y nafta / diesel, si el cliente lo dijo."""
+    blob = fold(" ".join(t for t in texts if t)).replace(",", ".")
+    litros = ""
+    if re.search(r"\b1\s*[.]?\s*4\b", blob) or "1.4" in blob:
+        litros = "1.4"
+    if re.search(r"\b1\s*[.]?\s*6\b", blob) or "1.6" in blob:
+        litros = "1.6"
+    fuel = ""
+    if any(word in blob for word in ("hdi", "diesel", "gasoil", "gasol")):
+        fuel = "diesel"
+    if any(word in blob for word in ("nafta", "naftero")):
+        fuel = "nafta"
+    return {"litros": litros, "fuel": fuel}
+
+
+def peugeot_drill_spec(model: str, hints: dict) -> dict | None:
+    """Arma la ficha para bajar el 207/208 en PartsLink si no está el chasis de 8."""
+    model = (model or "").strip()
+    litros = str(hints.get("litros") or "")
+    fuel = str(hints.get("fuel") or "")
+    if not model or not litros or not fuel:
+        return None
+    motor = ""
+    motor_code = ""
+    if model == "207" and litros == "1.4" and fuel == "nafta":
+        motor, motor_code = "1.4 i 75", "TU3JP"
+    elif model == "207" and litros == "1.4" and fuel == "diesel":
+        motor, motor_code = "1.4 HDI 70", ""
+    elif model == "207" and litros == "1.6" and fuel == "nafta":
+        motor, motor_code = "1.6 i 16v 110", "TU5JP4"
+    elif model == "207" and litros == "1.6" and fuel == "diesel":
+        motor, motor_code = "1.6 HDI", ""
+    elif litros == "1.4" and fuel == "nafta":
+        motor, motor_code = "1.4 i 75", "TU3JP"
+    elif litros == "1.6" and fuel == "nafta":
+        motor, motor_code = "1.6 i 16v 110", "TU5JP4"
+    if not motor:
+        return None
+    return {
+        "marca": "peugeot",
+        "modelo": model,
+        "amlat": True,
+        "carroceria": "BERLINA 5 PUERTAS",
+        "motor": motor,
+        "motor_code": motor_code,
+        "caja": "CVM 5",
+    }
+
+
+def ask_motor_reply(modelo: str, hints: dict | None = None) -> str:
+    """Chasis de 8 que no está en la lista: falta cilindrada y nafta/diesel."""
+    hints = hints or {}
+    litros = str(hints.get("litros") or "")
+    fuel = str(hints.get("fuel") or "")
+    if litros and not fuel:
+        return f"Anoté el {modelo or 'auto'} {litros}. ¿Nafta o diesel?"
+    if fuel and not litros:
+        return f"Anoté {fuel}. ¿Es 1.4 o 1.6?"
+    return f"Anoté el chasis. El {modelo or 'auto'} ¿es 1.4 o 1.6, nafta o diesel?"
+
+
+def advice_hint(query: str) -> str:
+    """Consejo de mostrador: no es código ni precio."""
+    blob = fold(query)
+    kind = pump_kind_wanted(query)
+    if kind == "agua":
+        return (
+            "Consejo permitido: una frase, bomba de agua = refrigeración. "
+            "Junta y líquido si hace falta. No inventes códigos ni precios."
+        )
+    if kind == "combustible":
+        return (
+            "Consejo permitido: es la bomba que manda combustible. "
+            "No la mezcles con la de agua. No inventes códigos extra."
+        )
+    if kind == "aceite":
+        return "Consejo permitido: es la bomba de aceite del motor. No inventes códigos extra."
+    if "filtro" in blob and "aceite" in blob:
+        return (
+            "Consejo permitido: el filtro de aceite va en el service. "
+            "No cotices aceite si no está en HECHOS."
+        )
+    if any(word in blob for word in ("amortiguador", "amort")):
+        return (
+            "Consejo permitido: los amortiguadores van por eje y a veces de a pares. "
+            "No inventes el lado ni el código."
+        )
+    if any(word in blob for word in ("faro", "optica", "piloto")):
+        return "Consejo permitido: el faro va izquierdo o derecho. Pedí el lado si falta."
+    if "correa" in blob or "distribucion" in blob:
+        return "Consejo permitido: distribución es trabajo fino; si hay duda, un compañero lo confirma."
+    if "radiador" in blob:
+        return (
+            "Consejo permitido: una frase, el radiador enfría el motor. "
+            "Refrigerante al cambiarlo. No inventes códigos ni precios."
+        )
+    if not blob:
+        return ""
+    return (
+        "Consejo permitido: una frase para qué sirve. "
+        "No inventes compatibilidad, códigos ni precios."
+    )
+
+
 def piece_query(text: str, chasis: str = "") -> str:
     """Texto de la pieza, sin el chasis ni el saludo."""
     blob = text
@@ -542,6 +740,8 @@ def last_piece_query(user_messages: list[str], current: str, chasis: str = "") -
     """La pieza de ESTE pedido, no la de un chat anterior (filtro 308 + amortiguador)."""
     for msg in [current, *reversed(user_messages)]:
         if extract_chassis(msg) and not piece_query(msg, chasis):
+            continue
+        if is_motor_clarify(msg) or is_motor_clarify(piece_query(msg, chasis)):
             continue
         query = piece_query(msg, chasis)
         if query:
@@ -618,8 +818,8 @@ _LEAK_MARKERS = (
 )
 
 SAFE_FALLBACK = (
-    "Disculpá, se me cortó el mensaje. "
-    "¿Me repetís la pieza y el auto? Si es compleja, pasame el chasis."
+    "Disculpá, se me cortó. "
+    "¿Me repetís la pieza y el auto? Si es de las finas, pasame el chasis."
 )
 
 
@@ -634,7 +834,7 @@ def is_sendable(text: str) -> bool:
     if any(fold(marker) in blob for marker in _LEAK_MARKERS):
         return False
     last = fold(re.sub(r"[^\wáéíóúñ]+$", "", raw.split()[-1], flags=re.IGNORECASE))
-    if last in _HANGING:
+    if last in _HANGING and not raw.endswith((".", "?", "!", "…")):
         return False
     return True
 
