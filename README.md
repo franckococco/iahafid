@@ -50,10 +50,13 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 npx localtunnel --port 8000
 ```
 
-6. En Meta, webhook:
+6. En Meta, webhook (si el túnel no lo registró solo):
+   - Entrá al [dashboard de IAHAFID](https://developers.facebook.com/apps/1810396190374656/dashboard/)
+   - Casos de uso / WhatsApp → Configuración → Webhooks
    - Callback URL: `https://TU-TUNEL/webhook`
-   - Verify token: `iahaf-verify-cambiar`
+   - Verify token: `iahaf-verify-cambiar` (con guiones; copiar y pegar)
    - Campo suscrito: **messages**
+   - No uses URLs con `use-cases` (guiones): Meta las marca como enlace roto.
 
 App de Meta: [IAHAFID](https://developers.facebook.com/apps/1810396190374656/dashboard/)
 

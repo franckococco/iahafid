@@ -30,6 +30,11 @@ RESET_REPLY = "Dale, de cero. ¿Qué pieza y para qué auto?"
 
 NEED_DETAILS = "¿Qué pieza necesitás y para qué auto?"
 
+GREET_REPLY = (
+    "Hola, ¿cómo andás? Acá en el local te ayudo con el repuesto. "
+    "Cuando quieras decime la pieza y el auto."
+)
+
 _RESET = (
     "nuevo pedido",
     "nueva consulta",
@@ -100,73 +105,15 @@ _MOTOR_HINT = re.compile(r"\b(motor|nro\.?\s*(de\s*)?motor|numero\s+de\s+motor)\
 
 
 def brand_hint(*texts: str) -> str:
-    """Marca del auto para entrar al catálogo correcto en PartsLink24."""
-    blob = fold(" ".join(t for t in texts if t))
-    if "peugeot" in blob or "peugeout" in blob:
-        return "peugeot"
-    if "citroen" in blob:
-        return "citroen"
-    if "volkswagen" in blob or re.search(r"\bvw\b", blob):
-        return "volkswagen"
-    if any(
-        re.search(rf"\b{name}\b", blob)
-        for name in (
-            "amarok",
-            "bora",
-            "golf",
-            "vento",
-            "fox",
-            "suran",
-            "saveiro",
-            "polo",
-            "passat",
-            "tiguan",
-        )
-    ):
-        return "volkswagen"
-    return ""
+    """Marca del auto para entrar al catálogo correcto (último auto nombrado gana)."""
+    brand, _ = named_vehicle(*texts)
+    return brand
 
 
 def model_hint(*texts: str) -> str:
-    """Modelo (207, 308…) para el catálogo Peugeot cuando el chasis es corto."""
-    blob = fold(" ".join(t for t in texts if t))
-    for item in (
-        "2008",
-        "3008",
-        "5008",
-        "partner",
-        "rifter",
-        "berlingo",
-        "207",
-        "208",
-        "308",
-        "408",
-        "301",
-        "206",
-        "307",
-        "306",
-        "205",
-        "108",
-        "107",
-        "106",
-    ):
-        if re.search(rf"\b{item}\b", blob):
-            return item
-    for item in (
-        "amarok",
-        "bora",
-        "golf",
-        "vento",
-        "fox",
-        "suran",
-        "saveiro",
-        "polo",
-        "passat",
-        "tiguan",
-    ):
-        if re.search(rf"\b{item}\b", blob):
-            return item
-    return ""
+    """Modelo nombrado por el cliente (Amarok, 308, C3…)."""
+    _, model = named_vehicle(*texts)
+    return model
 
 
 def oem_family(marca: str = "", modelo: str = "", chasis: str = "") -> str:
@@ -212,6 +159,103 @@ def fold(text: str) -> str:
     return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
 
 
+# El último auto nombrado manda. Así "pastillas Amarok" no cotiza un C3 del catálogo de muestra.
+_NAMED_MODELS: dict[str, tuple[str, str]] = {
+    "amarok": ("volkswagen", "amarok"),
+    "bora": ("volkswagen", "bora"),
+    "golf": ("volkswagen", "golf"),
+    "vento": ("volkswagen", "vento"),
+    "fox": ("volkswagen", "fox"),
+    "suran": ("volkswagen", "suran"),
+    "saveiro": ("volkswagen", "saveiro"),
+    "polo": ("volkswagen", "polo"),
+    "passat": ("volkswagen", "passat"),
+    "tiguan": ("volkswagen", "tiguan"),
+    "taos": ("volkswagen", "taos"),
+    "nivus": ("volkswagen", "nivus"),
+    "virtus": ("volkswagen", "virtus"),
+    "gol": ("volkswagen", "gol"),
+    "c3": ("citroen", "c3"),
+    "c4": ("citroen", "c4"),
+    "c5": ("citroen", "c5"),
+    "berlingo": ("citroen", "berlingo"),
+    "5008": ("peugeot", "5008"),
+    "3008": ("peugeot", "3008"),
+    "2008": ("peugeot", "2008"),
+    "partner": ("peugeot", "partner"),
+    "rifter": ("peugeot", "rifter"),
+    "408": ("peugeot", "408"),
+    "308": ("peugeot", "308"),
+    "301": ("peugeot", "301"),
+    "208": ("peugeot", "208"),
+    "207": ("peugeot", "207"),
+    "206": ("peugeot", "206"),
+    "307": ("peugeot", "307"),
+    "306": ("peugeot", "306"),
+    "205": ("peugeot", "205"),
+    "108": ("peugeot", "108"),
+    "107": ("peugeot", "107"),
+    "106": ("peugeot", "106"),
+}
+_BRAND_ONLY = (
+    (re.compile(r"\bvolkswagen\b"), "volkswagen"),
+    (re.compile(r"\bvw\b"), "volkswagen"),
+    (re.compile(r"\bpeugeou?t\b"), "peugeot"),
+    (re.compile(r"\bcitroen\b"), "citroen"),
+)
+
+
+def _vehicle_in_blob(blob: str) -> tuple[str, str]:
+    last_at = -1
+    found = ("", "")
+    for token, pair in _NAMED_MODELS.items():
+        for match in re.finditer(rf"\b{re.escape(token)}\b", blob):
+            if match.start() >= last_at:
+                last_at = match.start()
+                found = pair
+    if found != ("", ""):
+        return found
+    last_at = -1
+    brand = ""
+    for regex, name in _BRAND_ONLY:
+        for match in regex.finditer(blob):
+            if match.start() >= last_at:
+                last_at = match.start()
+                brand = name
+    return (brand, "") if brand else ("", "")
+
+
+def named_vehicle(*texts: str) -> tuple[str, str]:
+    """(marca, modelo) del último auto que nombró el cliente."""
+    last = ("", "")
+    for text in texts:
+        got = _vehicle_in_blob(fold(text or ""))
+        if got != ("", ""):
+            last = got
+    return last
+
+
+def item_fits_vehicle(item: dict, brand: str = "", model: str = "") -> bool:
+    """False si el SKU es de otro auto que el que pidió el cliente."""
+    if not brand and not model:
+        return True
+    item_marca = fold(str(item.get("marca") or ""))
+    item_modelo = fold(str(item.get("modelo") or ""))
+    if brand:
+        aliases = {brand, "vw"} if brand == "volkswagen" else {brand}
+        if item_marca:
+            if item_marca not in aliases and brand not in item_marca:
+                return False
+        elif not model:
+            return False
+    if model:
+        if not item_modelo:
+            return False
+        if model not in item_modelo and item_modelo not in model:
+            return False
+    return True
+
+
 def wants_human(text: str) -> bool:
     blob = fold(text)
     return any(phrase in blob for phrase in _HANDOFF)
@@ -219,12 +263,69 @@ def wants_human(text: str) -> bool:
 
 def wants_reset(text: str) -> bool:
     blob = fold(text)
-    return any(fold(phrase) in blob for phrase in _RESET)
+    if any(fold(phrase) in blob for phrase in _RESET):
+        return True
+    tokens = blob.split()
+    if 1 <= len(tokens) <= 3 and tokens[0] == "nuevo":
+        if any(tok.startswith(("pedi", "consul")) for tok in tokens[1:]):
+            return True
+    return False
 
 
 def wants_photo(text: str) -> bool:
     blob = fold(text)
     return any(fold(phrase) in blob for phrase in _PHOTO)
+
+
+_GREET_RE = re.compile(
+    r"\b(hola+|holis|buenas|saludos|hey|"
+    r"buen(as)?\s*(dias?|tardes?|noches?)|"
+    r"que\s+tal|como\s+(estas|andas|va))\b",
+    re.IGNORECASE,
+)
+_SMALL_TALK = {
+    "hola",
+    "holis",
+    "holaa",
+    "buenas",
+    "buen",
+    "dia",
+    "dias",
+    "tarde",
+    "tardes",
+    "noche",
+    "noches",
+    "saludos",
+    "hey",
+    "que",
+    "tal",
+    "como",
+    "estas",
+    "andas",
+    "anda",
+    "todo",
+    "bien",
+    "vos",
+    "va",
+    "che",
+    "ey",
+}
+
+
+def is_greeting_only(text: str) -> bool:
+    """True si solo saludó: no pieza, no chasis, no foto."""
+    cleaned = re.sub(r"[^\wáéíóúñ\s]", " ", fold(text))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned or not _GREET_RE.search(cleaned):
+        return False
+    if wants_photo(text) or wants_human(text) or wants_reset(text):
+        return False
+    if extract_chassis(text):
+        return False
+    leftover = piece_query(cleaned)
+    if not leftover:
+        return True
+    return all(token in _SMALL_TALK for token in leftover.split())
 
 
 def extract_chassis(text: str) -> str | None:
@@ -248,7 +349,9 @@ def extract_chassis(text: str) -> str | None:
             code = token.upper()
             if code in {"CHASIS", "CHASSIS", "VIN", "NUMERO", "NRO"}:
                 continue
-            if 8 <= len(code) <= 17 and _looks_like_chassis(code):
+            if 8 <= len(code) <= 17 and (
+                _looks_like_chassis(code) or code.isdigit()
+            ):
                 return code
     # Pegaron solo el código (8–17), típico cuando pedimos el chasis.
     if len(tokens) == 1:
@@ -329,9 +432,15 @@ _PIECE_STOP = {
     "necesito",
     "queria",
     "quisiera",
+    "quiero",
     "busco",
     "buscar",
     "buscando",
+    "pedi",
+    "pediste",
+    "pedir",
+    "pidiendo",
+    "pidio",
     "sale",
     "cuanto",
     "cuales",
@@ -340,6 +449,10 @@ _PIECE_STOP = {
     "foto",
     "imagen",
     "despiece",
+    "mostrar",
+    "mostrame",
+    "muestrame",
+    "muestra",
     "captura",
     "dibujo",
     "pasame",
@@ -787,7 +900,12 @@ def local_quote_ok(matches: list[dict], query: str = "") -> bool:
         return False
     if not query.strip():
         return True
+    if extract_chassis(query) or "chasis" in fold(query):
+        return False
     item = matches[0]
+    brand, model = named_vehicle(query)
+    if (brand or model) and not item_fits_vehicle(item, brand, model):
+        return False
     producto = fold(str(item.get("producto") or ""))
     name_words = [word for word in producto.split() if len(word) > 3]
     blob = fold(query)
@@ -866,6 +984,12 @@ def is_sendable(text: str) -> bool:
     last = fold(re.sub(r"[^\wáéíóúñ]+$", "", raw.split()[-1], flags=re.IGNORECASE))
     if last in _HANGING and not raw.endswith((".", "?", "!", "…")):
         return False
+    if len(raw.split()) >= 5 and not raw.endswith((".", "?", "!", "…")):
+        return False
+    if blob.startswith(("hola", "holis", "buenas")) and "pieza" not in blob and "repuesto" not in blob:
+        # Saludo suelto o "¡Hola! Para confirmarte…" a mitad de un pedido.
+        if "apart" not in blob and "stock" not in blob and "chasis" not in blob:
+            return False
     return True
 
 
@@ -874,10 +998,11 @@ def chassis_context(chasis: str) -> str:
         return (
             "El cliente todavía no dio número de chasis. "
             "Pedilo SOLO si la pieza es compleja o hay más de una opción. "
-            "Nunca pidas número de motor."
+            "Nunca pidas número de motor. Nunca inventes un chasis."
         )
     return (
         f"El cliente ya dio el número de chasis: {chasis}. "
         "No lo vuelvas a pedir. Nunca pidas número de motor. "
+        "Nunca inventes otro chasis. Solo usá este. "
         "Si la pieza es rápida, cotizá igual; el chasis queda anotado."
     )

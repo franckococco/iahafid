@@ -34,15 +34,35 @@ _SSH = [
 ]
 
 
+def _register_meta(url: str) -> None:
+    if str(_ROOT) not in sys.path:
+        sys.path.insert(0, str(_ROOT))
+    try:
+        from app.meta_webhook import register_public_webhook
+    except Exception as exc:
+        print("No pude cargar el registro en Meta:", exc, flush=True)
+        return
+    ok, detail = register_public_webhook(url)
+    if ok:
+        print("Meta ya apunta a esta URL. No hace falta el panel.", flush=True)
+        return
+    print("Meta no se actualizó solo:", detail, flush=True)
+    print(
+        "Dashboard (no uses use-cases con guiones):",
+        "https://developers.facebook.com/apps/1810396190374656/dashboard/",
+        flush=True,
+    )
+
+
 def _save(url: str) -> None:
     _URL_FILE.parent.mkdir(parents=True, exist_ok=True)
     _URL_FILE.write_text(url.strip() + "\n", encoding="utf-8")
     webhook = url.rstrip("/") + "/webhook"
     print(flush=True)
     print("=" * 60, flush=True)
-    print("Pegá en Meta (Callback URL):", flush=True)
-    print(webhook, flush=True)
+    print("Callback URL:", webhook, flush=True)
     print("Token:", "iahaf-verify-cambiar", flush=True)
+    _register_meta(url)
     print("=" * 60, flush=True)
 
 

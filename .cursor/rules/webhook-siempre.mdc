@@ -1,15 +1,19 @@
 ---
-description: Siempre incluir URL de Meta, webhook del túnel y token de verificación
+description: Webhook de producción en Railway; no pedir pegar túnel si el bot ya está online
 alwaysApply: true
 ---
 
-# Webhook a mano
+# Webhook
 
-Cuando el usuario pruebe WhatsApp, el túnel, Meta o el bot, **siempre** cerrá el mensaje con este bloque (valores actuales, no inventes):
+El bot de producción está en Railway. **No toques Meta** ni pidas Verify and save salvo que el usuario diga que WhatsApp no llega.
+
+Cuando hable de WhatsApp, Meta, túnel o el bot, cerrá con este bloque:
 
 1. **Dónde ir en Meta (webhook):** `https://developers.facebook.com/apps/1810396190374656/use_cases/customize/wa-configurations-v2/?product_route=whatsapp-business`
-2. **Callback URL:** `https://<túnel-activo>/webhook` (la del túnel que esté corriendo ahora)
-3. **Servidor local:** `http://127.0.0.1:8000`
+2. **Callback URL (producción, fija):** `https://iahafid-production.up.railway.app/webhook`
+3. **Servidor local (solo emergencia):** `http://127.0.0.1:8000`
 4. **Token de verificación:** `iahaf-verify-cambiar`
 
-No asumas que el usuario tiene la URL a mano. Si el túnel cambió, pegá la nueva. No pongas secretos de `.env` (token de WhatsApp, Gemini, PartsLink).
+Nunca uses `use-cases` con guiones (404). El deep link correcto lleva `use_cases` (guión bajo).
+
+No pongas secretos de `.env`. No subas `.env`. Push a `main` despliega Railway solo.

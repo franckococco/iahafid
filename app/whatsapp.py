@@ -135,6 +135,16 @@ async def mark_as_read(message_id: str) -> None:
             logger.warning("Could not mark as read: %s", response.text)
 
 
+def operator_numbers() -> list[str]:
+    raw = (settings.operator_whatsapp or "").replace(";", ",")
+    seen: list[str] = []
+    for part in raw.split(","):
+        dest = part.strip()
+        if dest and dest not in seen:
+            seen.append(dest)
+    return seen
+
+
 async def notify_operator(
     reason: str,
     sender: str,
@@ -142,17 +152,30 @@ async def notify_operator(
     chasis: str = "",
     pieza: str = "",
 ) -> None:
-    dest = (settings.operator_whatsapp or "").strip()
-    if not dest:
-        logger.warning("Consulta difícil sin OPERATOR_WHATSAPP (%s)", reason)
+    from app.memory import save_handoff
+
+    save_handoff(reason, sender, text, chasis=chasis, pieza=pieza)
+    dests = operator_numbers()
+    if not dests:
+        logger.warning("Sin OPERATOR_WHATSAPP; el aviso quedó en /local (%s)", reason)
         return
-    if dest == sender or dest in recipient_candidates(sender):
-        return
+    chat = f"https://wa.me/{sender}" if sender else "-"
     body = (
-        f"Consulta difícil: {reason}\n"
-        f"Cliente: {sender}\n"
-        f"Chasis: {chasis or '-'}\n"
+        "Atención: un cliente quedó esperando un vendedor.\n"
+        f"Cliente: {sender or '-'}\n"
+        f"Abrir chat: {chat}\n"
         f"Pieza: {pieza or '-'}\n"
-        f"Dijo: {text[:400]}"
+        f"Chasis: {chasis or '-'}\n"
+        f"Dijo: {(text or '-')[:300]}"
     )
-    await send_text(dest, body)
+    sent = False
+    customer_alts = set(recipient_candidates(sender))
+    customer_alts.add(sender)
+    for dest in dests:
+        if dest in customer_alts:
+            logger.info("Salteo %s: es el mismo chat del cliente; aviso en /local", dest)
+            continue
+        if await send_text(dest, body, check=False):
+            sent = True
+    if not sent:
+        logger.info("WhatsApp al local no se mandó; mirá http://127.0.0.1:8000/local")

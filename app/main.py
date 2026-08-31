@@ -1,12 +1,15 @@
 import asyncio
 import hashlib
 import hmac
+import html as html_lib
 import json
 import logging
 import time
 from collections import OrderedDict
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.ai import history_for_ai, reply_to
 from app.catalog import (
@@ -19,12 +22,20 @@ from app.catalog import (
 )
 from app.config import _ROOT, settings
 from app.memory import append as remember
-from app.memory import clear_conversation, history_for, profile_for, set_profile
+from app.memory import (
+    clear_conversation,
+    history_for,
+    list_handoffs,
+    mark_handoff_seen,
+    profile_for,
+    set_profile,
+)
 from app.sales import (
     ASK_CHASSIS_REPLY,
     GOT_CHASSIS_ONLY,
     RESET_REPLY,
     NEED_DETAILS,
+    GREET_REPLY,
     chassis_context,
     extract_chassis,
     handoff_reply,
@@ -34,6 +45,7 @@ from app.sales import (
     brand_hint,
     model_hint,
     motor_hint,
+    named_vehicle,
     peugeot_drill_spec,
     ask_motor_reply,
     oem_family,
@@ -42,6 +54,7 @@ from app.sales import (
     is_clarify_only,
     merge_piece,
     piece_clarify_ask,
+    is_greeting_only,
     fold,
     wants_human,
     wants_photo,
@@ -92,8 +105,8 @@ def _next_turn(sender: str) -> int:
     return n
 
 
-def _still_this_turn(sender: str, turn: int) -> bool:
-    return _turn.get(sender) == turn
+def _still_this_turn(sender: str, gen: int) -> bool:
+    return _turn.get(sender) == gen
 
 
 def _message_too_old(message: dict) -> bool:
@@ -106,11 +119,26 @@ def _message_too_old(message: dict) -> bool:
     if sent <= 0:
         return False
     return (time.time() - sent) > _MAX_MESSAGE_AGE
+
+
+def _forget_shot(shot) -> None:
     """No reenviar un despiece de otra consulta si esta búsqueda falló."""
     try:
         shot.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+async def _send_despiece(sender: str, shot, listed: str, user_id: str) -> bool:
+    """Manda la lámina si ya está. Varios códigos: igual se envía; el círculo es una opción."""
+    if not shot.exists():
+        return False
+    caption = (
+        "En el despiece está marcada con el círculo."
+        if listed_unique_part(listed)
+        else "Este es el despiece. El círculo marca una de las opciones del listado."
+    )
+    return await send_image(sender, shot, caption, user_id)
 
 
 def _needs_motor_ask(chasis: str, marca: str, modelo: str, hints: dict) -> bool:
@@ -161,9 +189,62 @@ async def _gemini_or_fallback(text: str, extra: str, fallback: str, sender: str)
     return answer
 
 
+def _local_page() -> str:
+    pending = [item for item in list_handoffs() if not item.get("visto")]
+    rows = []
+    for item in list_handoffs()[:40]:
+        visto = bool(item.get("visto"))
+        cliente = html_lib.escape(str(item.get("cliente") or ""))
+        pieza = html_lib.escape(str(item.get("pieza") or "-"))
+        chasis = html_lib.escape(str(item.get("chasis") or "-"))
+        dijo = html_lib.escape(str(item.get("dijo") or "-"))
+        when = html_lib.escape(str(item.get("at") or "")[:19].replace("T", " "))
+        btn = ""
+        if not visto:
+            at = quote(str(item.get("at") or ""), safe="")
+            btn = f'<p><a href="/local/visto?at={html_lib.escape(at, quote=True)}">Ya lo tomé</a></p>'
+        tone = "pendiente" if not visto else "visto"
+        rows.append(
+            f'<article class="{tone}"><p><b>{when}</b> · {cliente}</p>'
+            f"<p>Pieza: {pieza}<br>Chasis: {chasis}<br>Dijo: {dijo}</p>"
+            f"{btn}</article>"
+        )
+    body = "".join(rows) or "<p>No hay consultas derivadas.</p>"
+    title = f"Local IAHAF ({len(pending)} en espera)"
+    return f"""<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="8">
+<title>{html_lib.escape(title)}</title>
+<style>
+body{{font-family:sans-serif;max-width:40rem;margin:1.5rem auto;padding:0 1rem;background:#111;color:#eee}}
+h1{{font-size:1.2rem}}
+.pendiente{{border:1px solid #e6b800;background:#2a2408;padding:0.8rem;margin:0.8rem 0}}
+.visto{{opacity:0.55;border:1px solid #444;padding:0.8rem;margin:0.8rem 0}}
+button{{padding:0.4rem 0.8rem}}
+</style></head>
+<body>
+<h1>{html_lib.escape(title)}</h1>
+<p>Dejá esta pestaña abierta en la PC del local. Cuando el bot deriva, aparece acá. Si hay un celular distinto en OPERATOR_WHATSAPP, también le llega un WhatsApp.</p>
+{body}
+</body></html>"""
+
+
 @app.get("/health")
 async def health():
     return {"ok": True, "ai_mode": settings.ai_mode}
+
+
+@app.get("/local", response_class=HTMLResponse)
+async def local_board():
+    """Pantalla del local: consultas que el bot dejó para un vendedor."""
+    return HTMLResponse(_local_page())
+
+
+@app.get("/local/visto")
+async def local_seen(at: str = Query(default="")):
+    mark_handoff_seen(at)
+    return RedirectResponse("/local", status_code=303)
 
 
 @app.get("/consulta")
@@ -251,7 +332,7 @@ async def _handle_message(message: dict) -> None:
     if not text:
         return
 
-    turn = _next_turn(sender)
+    gen = _next_turn(sender)
     logger.info("De %s: %s", sender, text)
     asyncio.create_task(mark_as_read(message_id))
 
@@ -262,6 +343,22 @@ async def _handle_message(message: dict) -> None:
         await send_text(sender, RESET_REPLY, user_id)
         return
 
+    if is_greeting_only(text):
+        clear_conversation(sender)
+        extra = (
+            "HECHOS: el cliente SOLO saludó; todavía no pidió una pieza.\n"
+            "Saludá como vendedor de mostrador de una repuestera de autos. "
+            "Cálido, breve, de vos. No pidas chasis. No hagas formulario. "
+            "Podés invitarlo a decir la pieza y el auto cuando quiera."
+        )
+        answer = await _gemini_or_fallback(text, extra, GREET_REPLY, sender)
+        if not is_sendable(answer):
+            answer = GREET_REPLY
+        remember(sender, "user", text)
+        remember(sender, "assistant", answer)
+        await send_text(sender, answer, user_id)
+        return
+
     found_chassis = extract_chassis(text)
     previous = str(profile_for(sender).get("chasis") or "")
     if found_chassis and previous and found_chassis != previous:
@@ -270,10 +367,22 @@ async def _handle_message(message: dict) -> None:
     if found_chassis:
         set_profile(sender, chasis=found_chassis)
         logger.info("Chasis de %s: %s", sender, found_chassis)
-    chasis = found_chassis or str(profile_for(sender).get("chasis") or "")
+    past_user = [
+        item["text"] for item in history_for(sender) if item.get("role") == "user"
+    ]
+    chassis_in_chat = found_chassis or next(
+        (extract_chassis(msg) for msg in reversed(past_user) if extract_chassis(msg)),
+        "",
+    )
+    chasis = chassis_in_chat or ""
+    named_brand, _ = named_vehicle(*past_user, text)
+    if chasis and named_brand:
+        if oem_family(named_brand, "", "") != oem_family("", "", chasis):
+            logger.info("Chasis de otro auto; lo descarto")
+            chasis = ""
 
     past_msgs = [
-        turn["text"] for turn in history_for(sender) if turn.get("role") == "user"
+        item["text"] for item in history_for(sender) if item.get("role") == "user"
     ]
     lookup = f"{' '.join(past_msgs)} {text}".strip()
     matches = find_products(lookup)
@@ -282,7 +391,7 @@ async def _handle_message(message: dict) -> None:
     stored = str(profile_for(sender).get("pieza") or "")
     extra = piece_query(text, chasis)
     if wants_photo(text):
-        pieza = extra or stored or last_piece_query(past_msgs, "", chasis)
+        pieza = stored or last_piece_query(past_msgs, "", chasis)
     elif extra and is_motor_clarify(extra):
         pieza = stored or last_piece_query(past_msgs, "", chasis)
     elif extra and stored and (is_position_only(extra) or is_clarify_only(extra)):
@@ -290,7 +399,7 @@ async def _handle_message(message: dict) -> None:
     if pieza:
         logger.info("Pieza a buscar: %s", pieza)
 
-    marca = brand_hint(text, *past_msgs, str(profile_for(sender).get("marca") or ""))
+    marca = brand_hint(*past_msgs, text)
     if marca:
         set_profile(sender, marca=marca)
         logger.info("Marca de %s: %s", sender, marca)
@@ -298,7 +407,7 @@ async def _handle_message(message: dict) -> None:
     if chasis and len(chasis) < 17 and not marca:
         marca = "peugeot"
         logger.info("Chasis corto: pruebo catálogo Peugeot")
-    modelo = model_hint(text, *past_msgs, str(profile_for(sender).get("modelo") or ""))
+    modelo = model_hint(*past_msgs, text)
     if modelo:
         set_profile(sender, modelo=modelo)
         logger.info("Modelo de %s: %s", sender, modelo)
@@ -321,11 +430,13 @@ async def _handle_message(message: dict) -> None:
     answer = ""
 
     if wants_photo(text):
-        if chasis and pieza and _can_lookup(marca, modelo, chasis):
+        if shot.exists() and chasis:
+            sent = await _send_despiece(sender, shot, "", user_id)
+            answer = "Ahí te mandé el despiece." if sent else "No pude adjuntar la foto. Decime de nuevo."
+        elif chasis and pieza and _can_lookup(marca, modelo, chasis):
             if _needs_motor_ask(chasis, marca, modelo, hints):
                 answer = ask_motor_reply(modelo, hints)
             else:
-                _forget_shot(shot)
                 await send_text(
                     sender,
                     "Dame un segundo, estoy en el catálogo.",
@@ -340,25 +451,17 @@ async def _handle_message(message: dict) -> None:
                     model=modelo,
                     spec=spec,
                 )
-                if not _still_this_turn(sender, turn):
+                if not _still_this_turn(sender, gen):
                     logger.info("Descarto despiece tarde de %s", sender)
                     return
-                if listed_unique_part(answer) and shot.exists():
-                    await send_image(
-                        sender,
-                        shot,
-                        "En el despiece está marcada con el círculo.",
-                        user_id,
-                    )
-                else:
-                    _forget_shot(shot)
+                sent = await _send_despiece(sender, shot, answer, user_id)
                 if not answer:
-                    answer = "Ahí te mandé el despiece."
+                    answer = "Ahí te mandé el despiece." if sent else "No pude sacar la foto del despiece."
         else:
-            answer = "Primero el chasis, después te marco la foto."
+            answer = "Primero el chasis y la pieza, después te marco la foto."
     elif wants_human(text):
         answer = handoff_reply(chasis)
-    elif local_quote_ok(matches, text):
+    elif local_quote_ok(matches, lookup):
         extra = (
             search_products(lookup)
             + "\n\n"
@@ -377,6 +480,7 @@ async def _handle_message(message: dict) -> None:
         if is_sendable(answer) and not answer.startswith(_AI_FAILS):
             remember_reply("quote", text, answer)
     elif pieza and not chasis:
+        set_profile(sender, pieza=pieza, marca=marca, modelo=modelo)
         answer = ASK_CHASSIS_REPLY
     elif chasis and not pieza:
         answer = GOT_CHASSIS_ONLY
@@ -404,18 +508,10 @@ async def _handle_message(message: dict) -> None:
                 model=modelo,
                 spec=spec,
             )
-            if not _still_this_turn(sender, turn):
+            if not _still_this_turn(sender, gen):
                 logger.info("Descarto catálogo tarde de %s", sender)
                 return
-            if listed_unique_part(listed) and shot.exists():
-                await send_image(
-                    sender,
-                    shot,
-                    "En el despiece está marcada con el círculo.",
-                    user_id,
-                )
-            else:
-                _forget_shot(shot)
+            await _send_despiece(sender, shot, listed, user_id)
             answer = listed
     elif matches and is_complex(matches[0]) and chasis:
         answer = handoff_reply(chasis)
@@ -438,7 +534,7 @@ async def _handle_message(message: dict) -> None:
         if is_sendable(answer) and not answer.startswith(_AI_FAILS):
             remember_reply("quote", text, answer)
 
-    if not _still_this_turn(sender, turn):
+    if not _still_this_turn(sender, gen):
         logger.info("No envío respuesta tarde de %s", sender)
         return
 
@@ -453,6 +549,10 @@ async def _handle_message(message: dict) -> None:
         marker in hard
         for marker in (
             "te dejo con un vendedor",
+            "te dejo con un compañero",
+            "lo mira un vendedor",
+            "mira un vendedor",
+            "hay varias en el catalogo",
             "no pude ubicar",
             "no pude consultar el catalogo",
         )

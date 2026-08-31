@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 
 from app.config import _ROOT
-from app.sales import fold
+from app.sales import extract_chassis, fold, item_fits_vehicle, named_vehicle
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +120,12 @@ def find_products(query: str, limit: int = 8) -> list[dict]:
     tokens = _tokens(query)
     if not tokens:
         return []
+    brand, model = named_vehicle(query)
     learned_sku = _sku_from_learned(tokens)
     scored: list[tuple[int, dict]] = []
     for item in items:
+        if (brand or model) and not item_fits_vehicle(item, brand, model):
+            continue
         blob = fold(" ".join(str(v) for v in item.values()))
         score = 0
         for token in tokens:
@@ -147,6 +150,11 @@ def find_products(query: str, limit: int = 8) -> list[dict]:
 def remember_match(query: str, matches: list[dict]) -> None:
     """Si la consulta cerró en un solo producto, guarda cómo lo pidió el cliente."""
     if len(matches) != 1:
+        return
+    if extract_chassis(query) or "chasis" in fold(query):
+        return
+    brand, model = named_vehicle(query)
+    if not brand and not model:
         return
     item = matches[0]
     sku = str(item.get("sku") or "")
@@ -184,15 +192,15 @@ def search_products(query: str, limit: int = 8) -> str:
     matches = find_products(query, limit)
     if not matches:
         return (
-            "No hay coincidencias en el catálogo para esta consulta. "
-            "No inventes precios ni stock. Si el cliente ya dio marca y modelo "
-            "y hay un ítem parecido, usalo. Si no, pedí SOLO el dato que falte "
-            "(marca, modelo, año o pieza), uno por vez. "
+            "No hay coincidencias en el catálogo local para este auto y esta pieza. "
+            "No inventes precios ni stock. No cotices un ítem de OTRO auto. "
+            "No inventes un número de chasis. Si falta el chasis, pedilo. "
             "Si ya está completo y no hay match, ofrecé pasarlo a un vendedor."
         )
     lines = [_product_line(item) for item in matches]
     return (
-        "Productos encontrados (cotizá con estos datos; un año dentro del rango cuenta):\n"
+        "Productos encontrados (cotizá SOLO si marca y modelo son el auto que pidió; "
+        "un año dentro del rango cuenta). Si el ítem es de otro auto, ignoralo:\n"
         + "\n".join(lines)
     )
 

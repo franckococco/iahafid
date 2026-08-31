@@ -10,6 +10,7 @@ tools/
 data/chats.json
 data/learned.json
 data/customers.json
+data/handoffs.json
 data/partslink-state.json
 data/infobal-state.json
 data/expoyer-state.json
