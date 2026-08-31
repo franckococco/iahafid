@@ -20,6 +20,7 @@ from app.sales import (
     pump_kind_wanted,
     search_queries,
     side_wanted,
+    _PIECE_STOP,
 )
 
 logger = logging.getLogger(__name__)
@@ -1019,15 +1020,16 @@ def _item_blob(item: dict) -> str:
 
 
 def _piece_subject(name: str) -> str:
-    """Primera palabra útil: 'tubo flexible … bomba' → tubo, no bomba."""
-    skip = {"el", "la", "los", "las", "un", "una", "para", "de", "del", "con", "por", "al", "y"}
+    """Primera palabra de la pieza, no un verbo ni 'para/de'."""
+    skip = _PIECE_STOP | {"con", "por", "al", "y", "que", "como"}
     text = fold(name)
     for ch in "()[]/.,-;:":
         text = text.replace(ch, " ")
-    for word in text.split():
-        if len(word) > 2 and word not in skip:
+    words = [word for word in text.split() if len(word) > 2 and word not in skip]
+    for word in words:
+        if word in _SUBJECT_ALIASES:
             return word
-    return ""
+    return words[0] if words else ""
 
 
 _SUBJECT_ALIASES = {
@@ -1043,8 +1045,9 @@ _SUBJECT_ALIASES = {
     "filtro": {"filtro", "filter"},
     "tablero": {"tablero", "cuadro", "instrumentos", "cluster", "kombi", "kombiinstrument"},
     "cuadro": {"tablero", "cuadro", "instrumentos", "cluster", "kombi"},
-    "manguera": {"manguera", "manguito", "hose", "schlauch"},
-    "manguito": {"manguera", "manguito", "hose", "schlauch"},
+    "manguera": {"manguera", "manguito", "hose", "schlauch", "tubo", "flexible"},
+    "manguito": {"manguera", "manguito", "hose", "schlauch", "tubo", "flexible"},
+    "tubo": {"manguera", "manguito", "hose", "schlauch", "tubo", "flexible"},
 }
 
 _SATELLITES = {
@@ -1147,6 +1150,40 @@ def _rank_pump_rows(rows: list[dict], kind: str) -> list[dict]:
     return [item for _, item in scored][:8]
 
 
+_HOSE_EXCLUDE = (
+    "centrado",
+    "sincronizador",
+    "desplazable",
+    "embrague",
+    "marcha",
+)
+
+
+def _hose_wants_coolant(query: str) -> bool:
+    blob = fold(query)
+    hose = any(word in blob for word in ("manguera", "manguito", "tubo", "hose"))
+    coolant = any(word in blob for word in ("radiador", "refriger", "coolant"))
+    return hose and coolant
+
+
+def _is_coolant_line(item: dict) -> bool:
+    blob = _item_blob(item)
+    if any(word in blob for word in _HOSE_EXCLUDE):
+        return False
+    return any(
+        word in blob
+        for word in (
+            "radiador",
+            "radiator",
+            "refriger",
+            "coolant",
+            "kuehl",
+            "kuhl",
+            "wasser",
+        )
+    )
+
+
 def _token_in_blob(token: str, blob: str) -> bool:
     aliases = _subject_aliases(token) | _stems([token])
     aliases.add(token)
@@ -1166,6 +1203,8 @@ def _rank_rows(rows: list[dict], query: str) -> list[dict]:
         blob = _item_blob(item)
         hits = sum(1 for token in tokens if _token_in_blob(token, blob))
         if not hits:
+            continue
+        if _hose_wants_coolant(query) and not _is_coolant_line(item):
             continue
         if wanted and not _token_in_blob(wanted, blob):
             continue

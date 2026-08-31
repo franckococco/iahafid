@@ -468,6 +468,10 @@ _PIECE_STOP = {
     "busco",
     "buscar",
     "buscando",
+    "bucando",
+    "buskando",
+    "teni",
+    "tene",
     "pedi",
     "pediste",
     "pedir",
@@ -631,7 +635,8 @@ _SPELL = {
     "ebrague": "embrague",
     "embrage": "embrague",
     "embraghe": "embrague",
-    "clutch": "embrague",
+    "bucando": "buscando",
+    "buskando": "buscando",
 }
 
 
@@ -786,9 +791,11 @@ def catalog_search_query(query: str) -> str:
     blob = _fix_spelling(query) or fold(query)
     if "tablero" in blob:
         return "cuadro de instrumentos"
+    if ("manguera" in blob or "manguito" in blob) and (
+        "radiador" in blob or "refriger" in blob
+    ):
+        return "tubo refrigerante"
     if "manguera" in blob or "manguito" in blob:
-        if "radiador" in blob or "refriger" in blob:
-            return "manguito radiador"
         return "manguito"
     return blob
 
@@ -814,7 +821,15 @@ def search_queries(query: str) -> list[str]:
             "instrument cluster",
         )
     elif "manguera" in blob or "manguito" in blob:
-        extras = ("manguito radiador", "manguito", "tubo radiador", "hose")
+        if "radiador" in blob or "refriger" in blob:
+            extras = (
+                "tubo refrigerante",
+                "manguito refrigerante",
+                "tubo flexible refrigerante",
+                "coolant hose",
+            )
+        else:
+            extras = ("manguito", "tubo flexible")
     for alt in extras:
         if alt not in out:
             out.append(alt)
