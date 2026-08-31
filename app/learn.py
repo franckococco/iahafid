@@ -8,7 +8,7 @@ import re
 import threading
 
 from app.catalog import _LEARNED, _save_json, _tokens
-from app.sales import fold, is_sendable, daypart
+from app.sales import fold, is_sendable
 
 logger = logging.getLogger(__name__)
 

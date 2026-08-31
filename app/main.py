@@ -327,7 +327,17 @@ async def _handle_payload(payload: dict) -> None:
             for change in entry.get("changes", []):
                 value = change.get("value", {})
                 for message in value.get("messages", []) or []:
-                    await _handle_message(message)
+                    try:
+                        await _handle_message(message)
+                    except Exception:
+                        logger.exception("Error en mensaje")
+                        sender = message.get("from")
+                        if sender:
+                            await send_text(
+                                sender,
+                                SAFE_FALLBACK,
+                                message.get("from_user_id") or "",
+                            )
     except Exception:
         logger.exception("Error procesando webhook")
 

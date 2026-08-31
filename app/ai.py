@@ -5,7 +5,7 @@ import httpx
 
 from app.config import settings
 from app.learn import keeps_oem_codes, remember_reply, similar_replies
-from app.sales import is_sendable
+from app.sales import daypart, is_sendable
 
 logger = logging.getLogger(__name__)
 
