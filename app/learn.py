@@ -8,7 +8,7 @@ import re
 import threading
 
 from app.catalog import _LEARNED, _save_json, _tokens
-from app.sales import fold, is_sendable
+from app.sales import fold, is_sendable, daypart
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +127,45 @@ def remember_reply(kind: str, query: str, answer: str) -> None:
         logger.info("Aprendí tono %s %r", kind, " ".join(keys))
 
 
+def remember_ask(user: str, pieza: str, found: bool, chasis: str = "") -> None:
+    """Inbox de cómo pide la gente, encontrado o no. Gemini no inventa con esto."""
+    keys = _tokens(pieza or user)[:8]
+    if not keys:
+        return
+    with _LOCK:
+        data = _load()
+        asks = data.setdefault("asks", [])
+        folded = fold(" ".join(keys))
+        for item in asks:
+            if fold(" ".join(item.get("keys") or [])) == folded:
+                item["hits"] = int(item.get("hits") or 0) + 1
+                item["found"] = bool(found) or bool(item.get("found"))
+                item["last"] = (user or "")[:200]
+                if chasis:
+                    item["chasis"] = chasis
+                _save_json(_LEARNED, data)
+                return
+        asks.append(
+            {
+                "keys": keys,
+                "pieza": pieza,
+                "last": (user or "")[:200],
+                "chasis": chasis,
+                "found": found,
+                "hits": 1,
+            }
+        )
+        data["asks"] = asks[-_MAX:]
+        _save_json(_LEARNED, data)
+        logger.info("Anoté pedido %r found=%s", " ".join(keys), found)
+
+
+def list_asks(limit: int = 40) -> list[dict]:
+    asks = list(_load().get("asks") or [])
+    asks.reverse()
+    return asks[:limit]
+
+
 def keeps_oem_codes(answer: str, facts: str) -> bool:
     codes = _OEM.findall(facts or "")
     if not codes:
@@ -146,14 +185,15 @@ def _all_replies() -> list[dict]:
 
 def _load() -> dict:
     if not _LEARNED.exists():
-        return {"phrases": {}, "replies": []}
+        return {"phrases": {}, "replies": [], "asks": []}
     try:
         data = json.loads(_LEARNED.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         logger.warning("learned.json inválido")
-        return {"phrases": {}, "replies": []}
+        return {"phrases": {}, "replies": [], "asks": []}
     if not isinstance(data, dict):
-        return {"phrases": {}, "replies": []}
+        return {"phrases": {}, "replies": [], "asks": []}
     data.setdefault("phrases", {})
     data.setdefault("replies", [])
+    data.setdefault("asks", [])
     return data

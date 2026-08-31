@@ -55,6 +55,9 @@ async def phrase(
     examples = similar_replies(user_text, kind)
     extra = (
         f"HECHOS de esta consulta (obligatorios):\n{facts.strip()}\n\n"
+        f"Hora en el mostrador: {daypart()}. "
+        "Si es el primer mensaje del pedido, saludá breve con eso; si ya venís hablando, no lo repitas. "
+        "Hablá como vendedor de mostrador, no como formulario. Variá las frases.\n"
         f"{examples}"
     ).strip()
     text = await reply_to(user_text, history=history or [], extra_context=extra)

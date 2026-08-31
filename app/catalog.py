@@ -79,6 +79,13 @@ _ALIASES = {
     "kit": "kit",
     "correa": "correa",
     "gol": "gol",
+    "ebrage": "embrague",
+    "ebrague": "embrague",
+    "embrage": "embrague",
+    "clutch": "embrague",
+    "tablero": "tablero",
+    "manguera": "manguera",
+    "manguito": "manguera",
 }
 
 

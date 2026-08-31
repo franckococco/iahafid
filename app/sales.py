@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import datetime, timedelta, timezone
 
 HANDOFF_REPLY = (
     "Dale, te dejo con un compañero del local para esto. "
@@ -34,6 +35,37 @@ GREET_REPLY = (
     "Hola, ¿cómo andás? Acá en el local te ayudo con el repuesto. "
     "Cuando quieras decime la pieza y el auto."
 )
+
+
+def daypart() -> str:
+    """Saludo según hora del local (Argentina)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        hour = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).hour
+    except Exception:
+        hour = datetime.now(timezone(timedelta(hours=-3))).hour
+    if 5 <= hour < 12:
+        return "buenos días"
+    if hour < 20:
+        return "buenas tardes"
+    return "buenas noches"
+
+
+def greet_reply() -> str:
+    return (
+        f"{daypart().capitalize()}, ¿cómo andás? "
+        "Acá en el local te ayudo con el repuesto. "
+        "Cuando quieras decime la pieza y el auto."
+    )
+
+
+def with_hello(text: str) -> str:
+    """Si la plantilla no saluda, antepone buenos días/tardes/noches."""
+    blob = fold(text)
+    if blob.startswith(("hola", "buen")):
+        return text
+    return f"{daypart().capitalize()}. {text}"
 
 _RESET = (
     "nuevo pedido",
@@ -594,6 +626,20 @@ _FILTER_KIND_MARKERS = {
     "aire": ("aire",),
     "combustible": ("combustible", "gasoil", "nafta"),
 }
+_SPELL = {
+    "ebrage": "embrague",
+    "ebrague": "embrague",
+    "embrage": "embrague",
+    "embraghe": "embrague",
+    "clutch": "embrague",
+}
+
+
+def _fix_spelling(text: str) -> str:
+    tokens = [_SPELL.get(token, token) for token in fold(text).split()]
+    return " ".join(token for token in tokens if token)
+
+
 _SEARCH_PUMP = {
     "agua": "bomba para liquido refrigerante",
     "combustible": "bomba combustible",
@@ -737,7 +783,14 @@ def catalog_search_query(query: str) -> str:
         return "filtro habitaculo"
     if fkind:
         return f"filtro {fkind}"
-    return fold(query)
+    blob = _fix_spelling(query) or fold(query)
+    if "tablero" in blob:
+        return "cuadro de instrumentos"
+    if "manguera" in blob or "manguito" in blob:
+        if "radiador" in blob or "refriger" in blob:
+            return "manguito radiador"
+        return "manguito"
+    return blob
 
 
 def search_queries(query: str) -> list[str]:
@@ -751,6 +804,20 @@ def search_queries(query: str) -> list[str]:
         for alt in ("bomba liquido refrigerante", "bomba"):
             if alt not in out:
                 out.append(alt)
+    blob = fold(query)
+    extras: tuple[str, ...] = ()
+    if "tablero" in blob:
+        extras = (
+            "cuadro de instrumentos",
+            "tablero",
+            "kombiinstrument",
+            "instrument cluster",
+        )
+    elif "manguera" in blob or "manguito" in blob:
+        extras = ("manguito radiador", "manguito", "tubo radiador", "hose")
+    for alt in extras:
+        if alt not in out:
+            out.append(alt)
     return out
 
 
@@ -868,7 +935,7 @@ def piece_query(text: str, chasis: str = "") -> str:
     if found:
         blob = re.sub(re.escape(found), " ", blob, flags=re.IGNORECASE)
     tokens = [
-        token
+        _SPELL.get(token, token)
         for token in fold(blob).replace("?", " ").replace(".", " ").replace(",", " ").split()
         if len(token) > 1
         and token not in _PIECE_STOP

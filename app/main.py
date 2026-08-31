@@ -11,7 +11,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.ai import history_for_ai, reply_to
+from app.ai import history_for_ai, phrase, reply_to
 from app.catalog import (
     fallback_quote,
     find_products,
@@ -36,6 +36,9 @@ from app.sales import (
     RESET_REPLY,
     NEED_DETAILS,
     GREET_REPLY,
+    greet_reply,
+    with_hello,
+    daypart,
     chassis_context,
     extract_chassis,
     handoff_reply,
@@ -65,9 +68,9 @@ from app.sales import (
 from app.whatsapp import mark_as_read, notify_operator, send_image, send_text
 from app.partslink import enabled as partslink_enabled
 from app.partslink import short_vehicle_spec
-from app.oem import listed_unique_part, lookup_reply
+from app.oem import listed_has_parts, listed_unique_part, lookup_reply
 from app import expoyer, infobal, servicebox
-from app.learn import remember_reply, similar_replies
+from app.learn import list_asks, remember_ask, remember_reply, similar_replies
 
 _AI_FAILS = "Tuve un problema para generar la respuesta."
 _MAX_MESSAGE_AGE = 10 * 60
@@ -178,6 +181,12 @@ def _valid_signature(raw_body: bytes, header: str | None) -> bool:
 
 
 async def _gemini_or_fallback(text: str, extra: str, fallback: str, sender: str) -> str:
+    extra = (
+        f"Hora en el mostrador: {daypart()}. "
+        "Si es el primer mensaje del pedido, saludá breve con eso; si ya venís hablando, no lo repitas. "
+        "Hablá como vendedor de mostrador, no como formulario.\n"
+        f"{extra}"
+    )
     answer = await reply_to(
         text,
         history=history_for_ai(history_for(sender)),
@@ -210,6 +219,17 @@ def _local_page() -> str:
             f"{btn}</article>"
         )
     body = "".join(rows) or "<p>No hay consultas derivadas.</p>"
+    learned = []
+    for item in list_asks(25):
+        pieza = html_lib.escape(str(item.get("pieza") or " ".join(item.get("keys") or [])))
+        last = html_lib.escape(str(item.get("last") or "-"))
+        hits = html_lib.escape(str(item.get("hits") or 1))
+        estado = "encontró" if item.get("found") else "no figuró"
+        learned.append(
+            f'<article class="visto"><p><b>{pieza}</b> · {hits} vez · {estado}</p>'
+            f"<p>Dijo: {last}</p></article>"
+        )
+    asks = "".join(learned) or "<p>Todavía no hay pedidos guardados.</p>"
     title = f"Local IAHAF ({len(pending)} en espera)"
     return f"""<!doctype html>
 <html lang="es"><head>
@@ -219,14 +239,17 @@ def _local_page() -> str:
 <style>
 body{{font-family:sans-serif;max-width:40rem;margin:1.5rem auto;padding:0 1rem;background:#111;color:#eee}}
 h1{{font-size:1.2rem}}
+h2{{font-size:1rem;margin-top:2rem}}
 .pendiente{{border:1px solid #e6b800;background:#2a2408;padding:0.8rem;margin:0.8rem 0}}
-.visto{{opacity:0.55;border:1px solid #444;padding:0.8rem;margin:0.8rem 0}}
+.visto{{opacity:0.85;border:1px solid #444;padding:0.8rem;margin:0.8rem 0}}
 button{{padding:0.4rem 0.8rem}}
 </style></head>
 <body>
 <h1>{html_lib.escape(title)}</h1>
 <p>Dejá esta pestaña abierta en la PC del local. Cuando el bot deriva, aparece acá. Si hay un celular distinto en OPERATOR_WHATSAPP, también le llega un WhatsApp.</p>
 {body}
+<h2>Cómo piden (el bot aprende el tono y las palabras)</h2>
+{asks}
 </body></html>"""
 
 
@@ -347,13 +370,14 @@ async def _handle_message(message: dict) -> None:
         clear_conversation(sender)
         extra = (
             "HECHOS: el cliente SOLO saludó; todavía no pidió una pieza.\n"
-            "Saludá como vendedor de mostrador de una repuestera de autos. "
+            f"Hora en el mostrador: {daypart()}. "
+            "Saludá con Buenos días / Buenas tardes / Buenas noches según esa hora. "
             "Cálido, breve, de vos. No pidas chasis. No hagas formulario. "
             "Podés invitarlo a decir la pieza y el auto cuando quiera."
         )
-        answer = await _gemini_or_fallback(text, extra, GREET_REPLY, sender)
+        answer = await _gemini_or_fallback(text, extra, greet_reply(), sender)
         if not is_sendable(answer):
-            answer = GREET_REPLY
+            answer = greet_reply()
         remember(sender, "user", text)
         remember(sender, "assistant", answer)
         await send_text(sender, answer, user_id)
@@ -481,9 +505,22 @@ async def _handle_message(message: dict) -> None:
             remember_reply("quote", text, answer)
     elif pieza and not chasis:
         set_profile(sender, pieza=pieza, marca=marca, modelo=modelo)
-        answer = ASK_CHASSIS_REPLY
+        remember_ask(text, pieza, found=False, chasis="")
+        answer = await phrase(
+            text,
+            "Pedí el chasis de la cédula o el parabrisas, no el de motor.",
+            "chassis",
+            with_hello(ASK_CHASSIS_REPLY),
+            history_for_ai(history_for(sender)),
+        )
     elif chasis and not pieza:
-        answer = GOT_CHASSIS_ONLY
+        answer = await phrase(
+            text,
+            "Anoté el chasis. Pedí qué pieza busca.",
+            "got_chassis",
+            GOT_CHASSIS_ONLY,
+            history_for_ai(history_for(sender)),
+        )
     elif chasis and pieza and _can_lookup(marca, modelo, chasis):
         pending = piece_clarify_ask(pieza)
         set_profile(sender, chasis=chasis, pieza=pieza, marca=marca, modelo=modelo)
@@ -512,7 +549,20 @@ async def _handle_message(message: dict) -> None:
                 logger.info("Descarto catálogo tarde de %s", sender)
                 return
             await _send_despiece(sender, shot, listed, user_id)
-            answer = listed
+            remember_ask(text, pieza, found=listed_has_parts(listed), chasis=chasis)
+            facts = listed
+            if not listed_has_parts(listed):
+                facts += (
+                    "\nNo hay código en el catálogo. No inventes ninguno. "
+                    "Decile que lo mira un compañero del local."
+                )
+            answer = await phrase(
+                text,
+                facts,
+                "oem",
+                listed,
+                history_for_ai(history_for(sender)),
+            )
     elif matches and is_complex(matches[0]) and chasis:
         answer = handoff_reply(chasis)
     else:
@@ -546,7 +596,7 @@ async def _handle_message(message: dict) -> None:
     remember(sender, "assistant", answer)
     hard = fold(answer)
     if wants_human(text) or any(
-        marker in hard
+        fold(marker) in hard
         for marker in (
             "te dejo con un vendedor",
             "te dejo con un compañero",
@@ -555,6 +605,7 @@ async def _handle_message(message: dict) -> None:
             "hay varias en el catalogo",
             "no pude ubicar",
             "no pude consultar el catalogo",
+            "companero del local",
         )
     ):
         await notify_operator(

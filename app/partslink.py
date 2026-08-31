@@ -609,7 +609,7 @@ async def _search_parts(page, query: str) -> list[dict]:
     last: list[dict] = []
     terms = search_queries(query)
     if not pump_kind_wanted(query):
-        terms = terms[:2]
+        terms = terms[:4]
     for term in terms:
         logger.info("PartsLink24 busca pieza %r (pedido %r)", term, query)
         rows = await _run_part_search(page, term)
@@ -1031,8 +1031,8 @@ def _piece_subject(name: str) -> str:
 
 
 _SUBJECT_ALIASES = {
-    "radiador": {"radiador", "radiator"},
-    "radiator": {"radiador", "radiator"},
+    "radiador": {"radiador", "radiator", "refrigerante", "coolant"},
+    "radiator": {"radiador", "radiator", "refrigerante", "coolant"},
     "ventilador": {"ventilador", "electroventilador", "electro"},
     "electroventilador": {"ventilador", "electroventilador", "electro"},
     "faro": {"faro", "optica", "piloto", "farol"},
@@ -1041,6 +1041,10 @@ _SUBJECT_ALIASES = {
     "amortiguador": {"amortiguador", "amort"},
     "bomba": {"bomba", "pump"},
     "filtro": {"filtro", "filter"},
+    "tablero": {"tablero", "cuadro", "instrumentos", "cluster", "kombi", "kombiinstrument"},
+    "cuadro": {"tablero", "cuadro", "instrumentos", "cluster", "kombi"},
+    "manguera": {"manguera", "manguito", "hose", "schlauch"},
+    "manguito": {"manguera", "manguito", "hose", "schlauch"},
 }
 
 _SATELLITES = {
@@ -1143,6 +1147,12 @@ def _rank_pump_rows(rows: list[dict], kind: str) -> list[dict]:
     return [item for _, item in scored][:8]
 
 
+def _token_in_blob(token: str, blob: str) -> bool:
+    aliases = _subject_aliases(token) | _stems([token])
+    aliases.add(token)
+    return any(word in blob for word in aliases if word and len(word) > 2)
+
+
 def _rank_rows(rows: list[dict], query: str) -> list[dict]:
     kind = pump_kind_wanted(query)
     if kind:
@@ -1150,17 +1160,14 @@ def _rank_rows(rows: list[dict], query: str) -> list[dict]:
     tokens = [token for token in fold(query).split() if len(token) > 2]
     if not tokens:
         return []
+    wanted = _piece_subject(query)
     scored: list[tuple[int, dict]] = []
     for item in rows:
         blob = _item_blob(item)
-        hits = sum(
-            1
-            for token in tokens
-            if token in blob or any(stem in blob for stem in _stems([token]))
-        )
+        hits = sum(1 for token in tokens if _token_in_blob(token, blob))
         if not hits:
             continue
-        if len(tokens) >= 2 and hits < len(tokens):
+        if wanted and not _token_in_blob(wanted, blob):
             continue
         if _wrong_radiator_family(item, query):
             continue

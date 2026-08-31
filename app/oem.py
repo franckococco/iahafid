@@ -51,16 +51,17 @@ async def lookup_reply(
             spec=spec,
         )
     chunks: list[str] = []
-    if infobal.enabled():
+    # El chasis solo lo busca Service Box. Infobal/Expoyer son stock, no VIN.
+    if chasis and servicebox.enabled():
+        text = await servicebox.lookup_reply(chasis, query)
+        if text:
+            chunks.append(text)
+    if not chunks and infobal.enabled():
         text = await infobal.search_reply(query, model=model, brand=brand or "peugeot")
         if text:
             chunks.append(text)
     if not chunks and expoyer.enabled():
         text = await expoyer.search_reply(query, model=model)
-        if text:
-            chunks.append(text)
-    if not chunks and chasis and servicebox.enabled():
-        text = await servicebox.lookup_reply(chasis, query)
         if text:
             chunks.append(text)
     if chunks:
