@@ -11,6 +11,29 @@ En Meta, campo "Token de verificación": iahaf-verify-cambiar
 
 Repo: https://github.com/franckococco/iahafid
 
+TAREA PARA EL AGENTE (esta PC tiene cambios sin commit)
+-------------------------------------------------------
+El bot de WhatsApp YA corre en Railway. No hace falta túnel ni uvicorn para que conteste.
+URL fija: https://iahafid-production.up.railway.app/webhook
+Token Meta: iahaf-verify-cambiar
+No toques Meta. No subas .env.
+
+Hacé VOS (el agente) esto, con las tools de git, sin pedirle comandos al usuario:
+
+1. git stash push -u -m "pendiente otra pc"
+2. git pull origin main
+3. git stash pop
+4. Si hay CONFLICT: resolvé el merge (no tires el trabajo local). El .env no se commitea.
+5. git add de los cambios de código (nunca .env, nunca .venv, nunca .playwright-browsers).
+6. git commit con mensaje claro.
+7. git push origin main
+8. Railway despliega solo al pushear main. Confirmá que el último deploy quede SUCCESS si tenés CLI; si no, decile al usuario que mire el recuadro iahafid en verde.
+
+GitHub ya tiene (main): Railway + ignore mensajes viejos de Meta (commit 8b75687). Traé eso ANTES de commitear lo local.
+
+No regeneres tokens. No cambies el webhook de Meta. No borres el .env local.
+
+
 1) Bajar el código
 ------------------
 Si ya tenés la carpeta:
@@ -49,7 +72,7 @@ En Railway (logueado con la cuenta Hobby de USD 5):
 
 Después, UNA sola vez en Meta, Callback URL:
 
-`https://TU-DOMINIO.up.railway.app/webhook`
+`https://iahafid-production.up.railway.app/webhook`
 
 Token: `iahaf-verify-cambiar`
 Campo: messages
@@ -89,7 +112,7 @@ Si cambió la URL del túnel, pegala de nuevo y Verify and save.
 
 4) Pegar ESTO en Cursor (chat nuevo, carpeta del proyecto abierta)
 ------------------------------------------------------------------
-Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor. VW → PartsLink24. Peugeot/Citroën → Infobal, si vacío Expoyer, si vacío Service Box. Si la pieza es ambigua (bomba, filtro), PREGUNTA el tipo antes de buscar. El artículo tiene que SER la pieza (radiador ≠ ventilador/persiana/aceite). Una sola pieza: código + precio en el local, sin "¿Lo encargamos?". Varias de la misma: deriva a vendedor. La foto es el DESPIECE con círculo, solo si quedó un ítem. "nuevo pedido" reinicia. Producción: Railway (URL fija, sin PC prendida). Local: uvicorn sin --reload + keep_tunnel.py. Siempre devolver: URL de Meta webhook + callback activo (Railway o túnel) + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. No subas .env.
+Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. PRIMERO: esta PC tiene cambios sin commit. Vos (agente) hacé stash -u, git pull origin main, stash pop, resolvé conflictos si hay, commit SIN .env, git push origin main. Railway despliega solo. No toques Meta. WhatsApp de Meta es solo el tubo. VW → PartsLink24. Peugeot/Citroën → Infobal/Expoyer/Service Box. Una pieza: código + precio en el local, sin "¿Lo encargamos?". Varias: vendedor. "nuevo pedido" reinicia. Producción: https://iahafid-production.up.railway.app/webhook Token: iahaf-verify-cambiar. No regeneres tokens. No subas .env.
 
 
 5) Cómo vende ahora
