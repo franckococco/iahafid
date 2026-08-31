@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 
+from app.browser import chromium_launch_kwargs
 from app.config import _ROOT, settings
-
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_ROOT / ".playwright-browsers")
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +38,7 @@ async def _lookup_locked(chasis: str, query: str) -> str:
     from playwright.async_api import async_playwright
 
     playwright = await async_playwright().start()
-    browser = await playwright.chromium.launch(headless=True)
+    browser = await playwright.chromium.launch(**chromium_launch_kwargs())
     context = None
     try:
         kwargs: dict = {"locale": "es-AR", "viewport": {"width": 1400, "height": 900}}

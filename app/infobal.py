@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 
+from app.browser import chromium_launch_kwargs
 from app.config import _ROOT, settings
 from app.sales import catalog_close, fold
-
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_ROOT / ".playwright-browsers")
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +82,7 @@ async def _search_locked(query: str, model: str, brand: str) -> list[dict]:
     from playwright.async_api import async_playwright
 
     playwright = await async_playwright().start()
-    browser = await playwright.chromium.launch(headless=True)
+    browser = await playwright.chromium.launch(**chromium_launch_kwargs())
     context = None
     try:
         kwargs: dict = {"locale": "es-AR", "viewport": {"width": 1400, "height": 900}}

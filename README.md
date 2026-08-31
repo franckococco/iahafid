@@ -9,8 +9,8 @@ Backend que recibe mensajes de WhatsApp (Cloud API de Meta) y responde. Hoy est�
 | Qué | Ahora (prueba) | Después (producción) |
 |---|---|---|
 | Acceso a Meta | Usuario del sistema `iahaf-bot` (credenciales en `.env` local). | El mismo acceso sirve en producción; no uses el del panel de prueba. |
-| Servidor | Lo corrés en tu PC. Si apagás la PC, deja de contestar. | Lo dejás 24/7 en un hosting (Railway, Render, un VPS, etc.). |
-| URL pública | `localtunnel` / ngrok: cambia y hay que actualizar el webhook en Meta. | Un dominio fijo, se configura el webhook **una sola vez**. |
+| Servidor | Lo corrés en tu PC. Si apagás la PC, deja de contestar. | Railway Hobby: 24/7, la PC puede estar apagada. |
+| URL pública | `localhost.run` / ngrok: cambia y hay que actualizar el webhook en Meta. | `https://….up.railway.app/webhook`, se configura **una sola vez**. |
 | Número | Número de prueba de Meta (`+1 555-203-0245`). Solo habla con números autorizados. | Número de WhatsApp Business propio. |
 
 Resumen: el software y el usuario del sistema `iahaf-bot` ya están. En prueba local todavía hay que levantar el servidor y, si cambia el túnel, actualizar el webhook. Cuando haya hosting con URL fija, eso también queda atrás.

@@ -31,8 +31,34 @@ O copiá TOKEN-LOCAL.txt (está en esta PC, no se sube a GitHub).
 Sin eso el bot no habla ni entra a los catálogos.
 
 
-3) Instalar y levantar (PowerShell, dentro de la carpeta)
----------------------------------------------------------
+3) Railway (producción — la PC ya no hace falta)
+-------------------------------------------------
+El bot corre 24/7 en https://railway.com con URL fija. El túnel localhost.run queda de respaldo.
+
+En Railway (logueado con la cuenta Hobby de USD 5):
+
+1. New Project → Deploy from GitHub repo → `franckococco/iahafid` (branch `main`).
+2. Detecta el Dockerfile solo. El primer build tarda varios minutos (instala Chromium).
+3. Service → Variables → Raw Editor: pegá las mismas claves del `.env` local
+   (WHATSAPP_*, OPENAI_*, PARTSLINK24_*, SERVICEBOX_*, INFOBAL_*, EXPOYER_*, AI_MODE, AI_SYSTEM_PROMPT).
+   No subas el `.env` a GitHub. Railway las guarda aparte.
+4. Settings → Networking → Generate domain. Queda algo como:
+   `https://iahafid-production-xxxx.up.railway.app`
+5. Recursos: pedile ~2 GB de RAM (Chromium abre PartsLink/Infobal).
+6. Health: `/health` tiene que responder `{"ok": true}`.
+
+Después, UNA sola vez en Meta, Callback URL:
+
+`https://TU-DOMINIO.up.railway.app/webhook`
+
+Token: `iahaf-verify-cambiar`
+Campo: messages
+
+Cuando eso verifique, podés apagar la PC. Si WhatsApp no llega, el webhook de Meta todavía apunta al túnel viejo.
+
+
+3b) Local de emergencia (si Railway está caído)
+-----------------------------------------------
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
@@ -49,7 +75,7 @@ En otra ventana:
 
 python scripts\keep_tunnel.py
 
-AHORA (29 ago 2026, se vence si el túnel se cae):
+AHORA (túnel local, solo si Railway no está):
 Callback URL: https://75dbf938565bc9.lhr.life/webhook
 Servidor local: http://127.0.0.1:8000
 Token de verificación: iahaf-verify-cambiar
@@ -63,7 +89,7 @@ Si cambió la URL del túnel, pegala de nuevo y Verify and save.
 
 4) Pegar ESTO en Cursor (chat nuevo, carpeta del proyecto abierta)
 ------------------------------------------------------------------
-Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor. VW → PartsLink24. Peugeot/Citroën → Infobal, si vacío Expoyer, si vacío Service Box. Si la pieza es ambigua (bomba, filtro), PREGUNTA el tipo antes de buscar. El artículo tiene que SER la pieza (radiador ≠ ventilador/persiana/aceite). Una sola pieza: código + precio en el local, sin "¿Lo encargamos?". Varias de la misma: deriva a vendedor. La foto es el DESPIECE con círculo, solo si quedó un ítem. "nuevo pedido" reinicia. uvicorn sin --reload. Túnel: arrancar.ps1 / scripts/keep_tunnel.py (localhost.run, la URL cambia). Siempre devolver: URL de Meta webhook + callback del túnel + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. No subas .env. Próximo paso: hosting con URL fija (Railway).
+Seguir IAHAF. Leé CONTINUACION.md, PLAN.md y PEGAR-EN-LA-OTRA-PC.txt. WhatsApp de Meta es solo el tubo; no usamos la IA de Meta. El vendedor es nuestro software + Gemini. Catálogo local: rápido cotiza. Complejo: pide CHASIS (cédula/parabrisas), nunca motor. VW → PartsLink24. Peugeot/Citroën → Infobal, si vacío Expoyer, si vacío Service Box. Si la pieza es ambigua (bomba, filtro), PREGUNTA el tipo antes de buscar. El artículo tiene que SER la pieza (radiador ≠ ventilador/persiana/aceite). Una sola pieza: código + precio en el local, sin "¿Lo encargamos?". Varias de la misma: deriva a vendedor. La foto es el DESPIECE con círculo, solo si quedó un ítem. "nuevo pedido" reinicia. Producción: Railway (URL fija, sin PC prendida). Local: uvicorn sin --reload + keep_tunnel.py. Siempre devolver: URL de Meta webhook + callback activo (Railway o túnel) + http://127.0.0.1:8000 + token iahaf-verify-cambiar. No regeneres tokens; usá el .env local y iahaf-bot. No subas .env.
 
 
 5) Cómo vende ahora
@@ -114,6 +140,6 @@ Chat de prueba (from): 5493884801324 — a veces hay que enviar como 54388154801
   Arreglo: una sola pieza pedida; si hay varias de la misma, deriva a vendedor. Sin pedir encargo por chat.
 - Peugeot/Citroën no van a PartsLink. Infobal a veces devuelve radiadores de aceite de otras marcas; se filtran. Service Box a menudo está caído ("problema técnico").
 - "Disculpá, se me cortó" ×3: el wait terminaba en "busco" y is_sendable lo reemplazaba. Ahora el wait termina en punto y no pasa por ese check.
-- Túnel localhost.run se cae y cambia de URL; keep_tunnel.py reconecta. Callback viva abajo. Si WhatsApp no llega, re-pegar en Meta.
-- Hosting fijo (Railway) pendiente. No commitear .env ni .playwright-browsers ni data/tunnel-url.txt.
+- Hosting: Railway Hobby (USD 5). Dockerfile + Chromium. Variables en el panel, no en GitHub. Callback fijo `https://….up.railway.app/webhook`. Túnel localhost.run solo de emergencia.
+- No commitear .env ni .playwright-browsers ni data/tunnel-url.txt.
 - Probar: *nuevo pedido* + radiador + chasis Amarok, o Peugeot con chasis de 8.

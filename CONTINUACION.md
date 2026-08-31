@@ -78,7 +78,7 @@ El `.env` se copia de la otra PC (nunca de GitHub). `AI_MODE=openai`, modelo `ge
 
 ## Qué sigue
 
-1. Subir a Railway (URL fija, dejar de reiniciar túnel).
+1. ~~Subir a Railway (URL fija, dejar de reiniciar túnel).~~ En curso: Dockerfile + `railway.json`. Conectar el repo en el panel, pegar variables del `.env`, Generate domain, webhook en Meta **una vez**.
 2. Cargar el Excel real con columna `tipo` (rapido/complejo).
 3. Precios del proveedor (scrape, no inventar).
 4. Aviso al vendedor cuando derive.
