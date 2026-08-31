@@ -546,11 +546,10 @@ async def _handle_message(message: dict) -> None:
                 user_id,
                 check=False,
             )
-            shot_to = str(shot) if oem_family(marca, modelo, chasis) == "vw" else None
             listed = await lookup_reply(
                 chasis,
                 pieza,
-                screenshot_to=shot_to,
+                screenshot_to=None,
                 brand=marca,
                 model=modelo,
                 spec=spec,
@@ -558,7 +557,6 @@ async def _handle_message(message: dict) -> None:
             if not _still_this_turn(sender, gen):
                 logger.info("Descarto catálogo tarde de %s", sender)
                 return
-            await _send_despiece(sender, shot, listed, user_id)
             remember_ask(text, pieza, found=listed_has_parts(listed), chasis=chasis)
             facts = listed
             if not listed_has_parts(listed):
