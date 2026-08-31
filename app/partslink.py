@@ -1047,7 +1047,8 @@ _SUBJECT_ALIASES = {
     "cuadro": {"tablero", "cuadro", "instrumentos", "cluster", "kombi"},
     "manguera": {"manguera", "manguito", "hose", "schlauch", "tubo", "flexible"},
     "manguito": {"manguera", "manguito", "hose", "schlauch", "tubo", "flexible"},
-    "tubo": {"manguera", "manguito", "hose", "schlauch", "tubo", "flexible"},
+    "embrague": {"embrague", "clutch", "kupplung"},
+    "freno": {"freno", "brake", "bremse"},
 }
 
 _SATELLITES = {
@@ -1083,6 +1084,31 @@ def _item_is_primary(item: dict, query: str) -> bool:
     return subject in _subject_aliases(wanted)
 
 
+_CLUTCH_MARK = ("embrague", "clutch", "kupplung", "presion")
+_BRAKE_MARK = ("freno", "brake", "bremse")
+
+
+def _wrong_disc_family(item: dict, query: str) -> bool:
+    """Disco de embrague ≠ disco de freno."""
+    wanted = fold(query)
+    name = fold(str(item.get("name") or ""))
+    if "disco" not in wanted:
+        return False
+    want_clutch = any(word in wanted for word in ("embrague", "clutch", "ebrage"))
+    want_brake = any(word in wanted for word in ("freno", "brake"))
+    has_clutch = any(word in name for word in _CLUTCH_MARK)
+    has_brake = any(word in name for word in _BRAKE_MARK)
+    if want_clutch and not want_brake:
+        return (has_brake and not has_clutch) or not has_clutch
+    if want_brake and not want_clutch:
+        return (has_clutch and not has_brake) or not has_brake
+    return False
+
+
+def _wrong_family(item: dict, query: str) -> bool:
+    return _wrong_radiator_family(item, query) or _wrong_disc_family(item, query)
+
+
 def _wrong_radiator_family(item: dict, query: str) -> bool:
     wanted = fold(query)
     name = fold(str(item.get("name") or ""))
@@ -1114,7 +1140,7 @@ def _is_satellite(item: dict, query: str) -> bool:
 
 def _keep_asked_piece(rows: list[dict], query: str) -> list[dict]:
     """Si pidieron radiador, queda el radiador; no el ventilador ni la persiana."""
-    kept = [item for item in rows if not _wrong_radiator_family(item, query)]
+    kept = [item for item in rows if not _wrong_family(item, query)]
     primary = [item for item in kept if _item_is_primary(item, query)]
     if primary:
         return primary
@@ -1208,7 +1234,7 @@ def _rank_rows(rows: list[dict], query: str) -> list[dict]:
             continue
         if wanted and not _token_in_blob(wanted, blob):
             continue
-        if _wrong_radiator_family(item, query):
+        if _wrong_family(item, query):
             continue
         if _item_is_primary(item, query):
             hits += 10
