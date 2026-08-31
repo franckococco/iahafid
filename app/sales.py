@@ -108,6 +108,22 @@ def brand_hint(*texts: str) -> str:
         return "citroen"
     if "volkswagen" in blob or re.search(r"\bvw\b", blob):
         return "volkswagen"
+    if any(
+        re.search(rf"\b{name}\b", blob)
+        for name in (
+            "amarok",
+            "bora",
+            "golf",
+            "vento",
+            "fox",
+            "suran",
+            "saveiro",
+            "polo",
+            "passat",
+            "tiguan",
+        )
+    ):
+        return "volkswagen"
     return ""
 
 
@@ -133,6 +149,20 @@ def model_hint(*texts: str) -> str:
         "108",
         "107",
         "106",
+    ):
+        if re.search(rf"\b{item}\b", blob):
+            return item
+    for item in (
+        "amarok",
+        "bora",
+        "golf",
+        "vento",
+        "fox",
+        "suran",
+        "saveiro",
+        "polo",
+        "passat",
+        "tiguan",
     ):
         if re.search(rf"\b{item}\b", blob):
             return item

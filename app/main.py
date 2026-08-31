@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from collections import OrderedDict
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -56,6 +57,8 @@ from app import expoyer, infobal, servicebox
 from app.learn import remember_reply, similar_replies
 
 _AI_FAILS = "Tuve un problema para generar la respuesta."
+_MAX_MESSAGE_AGE = 10 * 60
+_turn: dict[str, int] = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -82,7 +85,27 @@ def _can_lookup(marca: str, modelo: str, chasis: str) -> bool:
     return infobal.enabled() or servicebox.enabled() or expoyer.enabled()
 
 
-def _forget_shot(shot) -> None:
+def _next_turn(sender: str) -> int:
+    """Cada mensaje vivo anula búsquedas de catálogo que todavía no terminaron."""
+    n = _turn.get(sender, 0) + 1
+    _turn[sender] = n
+    return n
+
+
+def _still_this_turn(sender: str, turn: int) -> bool:
+    return _turn.get(sender) == turn
+
+
+def _message_too_old(message: dict) -> bool:
+    """Meta reenvía webhooks que el túnel no contestó; no hay que atenderlos horas después."""
+    raw = message.get("timestamp")
+    try:
+        sent = int(raw)
+    except (TypeError, ValueError):
+        return False
+    if sent <= 0:
+        return False
+    return (time.time() - sent) > _MAX_MESSAGE_AGE
     """No reenviar un despiece de otra consulta si esta búsqueda falló."""
     try:
         shot.unlink(missing_ok=True)
@@ -215,6 +238,9 @@ async def _handle_message(message: dict) -> None:
     if _already_seen(message_id):
         logger.info("Mensaje duplicado ignorado: %s", message_id)
         return
+    if _message_too_old(message):
+        logger.info("Mensaje viejo ignorado id=%s ts=%s", message_id, message.get("timestamp"))
+        return
 
     user_id = message.get("from_user_id") or ""
     if msg_type != "text":
@@ -225,6 +251,7 @@ async def _handle_message(message: dict) -> None:
     if not text:
         return
 
+    turn = _next_turn(sender)
     logger.info("De %s: %s", sender, text)
     asyncio.create_task(mark_as_read(message_id))
 
@@ -313,6 +340,9 @@ async def _handle_message(message: dict) -> None:
                     model=modelo,
                     spec=spec,
                 )
+                if not _still_this_turn(sender, turn):
+                    logger.info("Descarto despiece tarde de %s", sender)
+                    return
                 if listed_unique_part(answer) and shot.exists():
                     await send_image(
                         sender,
@@ -374,6 +404,9 @@ async def _handle_message(message: dict) -> None:
                 model=modelo,
                 spec=spec,
             )
+            if not _still_this_turn(sender, turn):
+                logger.info("Descarto catálogo tarde de %s", sender)
+                return
             if listed_unique_part(listed) and shot.exists():
                 await send_image(
                     sender,
@@ -404,6 +437,10 @@ async def _handle_message(message: dict) -> None:
         )
         if is_sendable(answer) and not answer.startswith(_AI_FAILS):
             remember_reply("quote", text, answer)
+
+    if not _still_this_turn(sender, turn):
+        logger.info("No envío respuesta tarde de %s", sender)
+        return
 
     if not is_sendable(answer) or str(answer).startswith(_AI_FAILS):
         logger.warning("Respuesta inválida, uso plantilla: %s", (answer or "")[:160])
