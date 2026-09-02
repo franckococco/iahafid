@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Taller — fichas</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="top">
+    <p class="brand">Taller</p>
+    <p class="tag">Enseñá al empleado nuevo. El chat solo lee las fichas.</p>
+  </header>
+  <main class="desk">
+    <section class="sheet" aria-label="Maquetado">
+      <h1>Maquetado de ficha</h1>
+      <p class="hint">Un auto, un conjunto, las piezas y cómo ofrecerlas. Si piden una, el chat cruza el resto.</p>
+      <form id="form" autocomplete="off">
+        <input type="hidden" name="id" id="fid">
+        <div class="grid4">
+          <label>Marca <input name="marca" placeholder="volkswagen"></label>
+          <label>Modelo <input name="modelo" placeholder="gol trend"></label>
+          <label>Motor <input name="motor" placeholder="1.4"></label>
+          <label>Año <input name="anio" placeholder="2014"></label>
+        </div>
+        <label>Conjunto
+          <input name="conjunto" list="conjuntos" placeholder="tren delantero">
+        </label>
+        <datalist id="conjuntos">
+          <option value="tren delantero">
+          <option value="tren trasero">
+          <option value="distribución">
+          <option value="frenos delanteros">
+          <option value="frenos traseros">
+          <option value="embrague">
+          <option value="refrigeración">
+        </datalist>
+        <label>Notas del local
+          <textarea name="notas" rows="2" placeholder="De a pares. No mezclar con 1.6."></textarea>
+        </label>
+        <label>Cómo vender / cruzar
+          <textarea name="venta" rows="2" placeholder="Si pide cazoleta, ofrecé amortiguador Sachs y bujes. El Sachs le va bien al 1.4."></textarea>
+        </label>
+        <h2>Piezas</h2>
+        <div id="piezas"></div>
+        <button type="button" class="ghost" id="add-pieza">+ Pieza</button>
+        <div class="actions">
+          <button type="submit" class="primary">Guardar ficha</button>
+          <button type="button" class="ghost" id="nueva">Nueva</button>
+        </div>
+      </form>
+      <div class="bulk">
+        <h2>Carga masiva (Excel)</h2>
+        <p class="hint">Una fila = una pieza. Repetí el auto y el conjunto en cada fila: se agrupan solas en una ficha.</p>
+        <div class="actions">
+          <a class="ghost linkbtn" href="/api/fichas.xlsx">Bajar plantilla / lo cargado</a>
+          <label class="filebtn">Subir Excel<input type="file" id="excel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+        </div>
+        <p id="bulk-msg" class="bulk-msg" hidden></p>
+      </div>
+      <h2>Fichas cargadas</h2>
+      <ul id="lista" class="lista"></ul>
+    </section>
+    <section class="chat" aria-label="Chat de prueba">
+      <h1>Probar la IA</h1>
+      <p class="hint">Ejemplo: <em>me das la cazoleta del tren delantero del gol trend</em></p>
+      <div id="log" class="log"></div>
+      <form id="ask">
+        <input id="pregunta" placeholder="Preguntá como un cliente…" autocomplete="off">
+        <button type="submit" class="primary">Enviar</button>
+      </form>
+    </section>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

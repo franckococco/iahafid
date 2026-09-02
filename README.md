@@ -60,6 +60,16 @@ npx localtunnel --port 8000
 
 App de Meta: [IAHAFID](https://developers.facebook.com/apps/1810396190374656/dashboard/)
 
+## Taller (fichas + chat, en la PC)
+
+Pantalla aparte de WhatsApp para cargar el conocimiento del local y probar cómo contesta la IA. Puerto **8010**.
+
+```powershell
+.\taller\arrancar.ps1
+```
+
+Abrí `http://127.0.0.1:8010`. Hace falta `.env` con `AI_MODE=openai` y la clave de Gemini (no subas `.env`). Podés cargar fichas a mano o un Excel (una fila = una pieza).
+
 ## Estructura
 
 - `app/main.py` — webhook GET (verificación) y POST (mensajes)

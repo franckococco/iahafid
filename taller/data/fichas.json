@@ -1,0 +1,129 @@
+{
+  "fichas": [
+    {
+      "id": "demo-gol-trend",
+      "marca": "volkswagen",
+      "modelo": "gol trend",
+      "motor": "1.4",
+      "anio": "2014",
+      "conjunto": "tren delantero",
+      "notas": "De a pares. No mezclar con 1.6.",
+      "venta": "Si pide cazoleta o rótula, ofrecé amortiguador Sachs y bujes. El Sachs le va bien a este 1.4.",
+      "piezas": [
+        {
+          "nombre": "Rótula inferior",
+          "marca": "",
+          "lado": "par",
+          "codigo": "",
+          "nota": "Confirmar lado al pedir"
+        },
+        {
+          "nombre": "Cazoleta",
+          "marca": "",
+          "lado": "par",
+          "codigo": "",
+          "nota": ""
+        },
+        {
+          "nombre": "Amortiguador delantero",
+          "marca": "Sachs",
+          "lado": "par",
+          "codigo": "",
+          "nota": "1.4 nafta"
+        },
+        {
+          "nombre": "Bujes de tren",
+          "marca": "",
+          "lado": "par",
+          "codigo": "",
+          "nota": ""
+        }
+      ]
+    },
+    {
+      "id": "5ab0b34654",
+      "marca": "peugeot",
+      "modelo": "208",
+      "motor": "1.6",
+      "anio": "2018",
+      "conjunto": "embrague",
+      "notas": "Kit completo",
+      "venta": "Si pide disco, ofrecé placa y kit. No vender el disco solo.",
+      "piezas": [
+        {
+          "nombre": "Disco de embrague",
+          "marca": "",
+          "lado": "",
+          "codigo": "",
+          "nota": ""
+        },
+        {
+          "nombre": "Placa",
+          "marca": "",
+          "lado": "",
+          "codigo": "",
+          "nota": ""
+        }
+      ]
+    },
+    {
+      "id": "25d24c7e60",
+      "marca": "chevrolet",
+      "modelo": "corsa",
+      "motor": "1.4",
+      "anio": "2010",
+      "conjunto": "embrague",
+      "notas": "Kit",
+      "venta": "Si pide disco, ofrecé placa y rodamiento.",
+      "piezas": [
+        {
+          "nombre": "Disco de embrague",
+          "marca": "Valeo",
+          "lado": "",
+          "codigo": "",
+          "nota": "kit"
+        },
+        {
+          "nombre": "Placa",
+          "marca": "Valeo",
+          "lado": "",
+          "codigo": "",
+          "nota": ""
+        },
+        {
+          "nombre": "Rodamiento",
+          "marca": "",
+          "lado": "",
+          "codigo": "",
+          "nota": ""
+        }
+      ]
+    },
+    {
+      "id": "4c5f152b16",
+      "marca": "fiat",
+      "modelo": "palio",
+      "motor": "1.4",
+      "anio": "2012",
+      "conjunto": "frenos delanteros",
+      "notas": "De a pares",
+      "venta": "Si pide pastilla, ofrecé disco.",
+      "piezas": [
+        {
+          "nombre": "Pastilla de freno",
+          "marca": "",
+          "lado": "par",
+          "codigo": "",
+          "nota": ""
+        },
+        {
+          "nombre": "Disco de freno",
+          "marca": "",
+          "lado": "par",
+          "codigo": "",
+          "nota": ""
+        }
+      ]
+    }
+  ]
+}
